@@ -1,0 +1,62 @@
+28 September 2020
+Project Team Meeting - Project Goals
+Dr. Yerro, Luis, Abdel, Kaleigh
+
+Topic: Upgrading NorSand (2015) Constitutive Model:
+1. 	Implement unloading surface – add an inclined yield surface? - Luis
+2.	Degradation of elastic properties (implicit way of dealing with damping) - Kaleigh
+3.	Softening due to rotation of principle stresses causes softening – important for  capturing cyclic loading (shrinking yield surface as a fxn of principal stresses, already hardens and softens but rate does not capture cyclic loading) - Abdel
+
+Literature Review/Dataset Collection: 
+- Abdel will focus on this
+- Common benchmarks? Ishihara experimental tests?
+- Book with constitutive model competition results and data?
+
+Testing of Finished Model:
+-	Try in Anura – create a very simple model
+-	E.g. Apply on vertical column, change aspect ratio, input loading, etc.
+-	Test each implementation separately
+-	Could import into PLAXIS or FLAC to compare with other constitutive models.
+
+Useful Tools in VisualStudio:
+-	Extensions and Updates
+    - Fortran CodeNav (can jump between subroutines)
+        *Control Q on subroutine will take you to where subroutine is programmed
+        *Alt Q takes you back to where subroutine is being called
+    -	Visual Studio IntelliCode
+
+Walk-Thru of NorSand UMAT Code: 
+- Nor_Sand_Rate subroutine:
+  - Compute state variables
+  - Update elastic and state parameters due to strain rate (only if on elastic portion)
+  - Elastic Procedure: check yield function and see if in elastic region or not
+  - Elastic Unloading Procedure:
+    - Find intersection of stress path with yield surface (but yield surface is moving) - uses Newton Method
+    - Check elastic unloading - Pegasus method
+- Substepping:
+    - Centered FD approximation:
+        - State variables assumed.
+        - Increment of stress computed.
+        - Increase in elastic strain computed and parameters softened.
+        - Second approximation with update parameters.
+- Stress Drift
+  - Yield surface and point moved to meet each other to ensure point is not too far from  yield surface.
+- GetdSiganddSP subroutine
+  - follows Sloan et al. procedure
+  - UpdateGandKdue2Erate
+    - will need to create a new subroutine of similar form to update G and K due to degradation.
+    
+ For Implementation of Task 2: Degradation of elastic properties
+ - Add one function at the beginning of substepping routine.
+ - Compute G based on plastic deformation right before the elastic matrix is computed. 
+ - Will need to add additional model parameters for inputs.
+ - Keep same modulus for whole substepping routine, only update once at beginning.
+ - Gmax changes with strain rate
+ - Maybe try implementing more than one different degradation curve.
+ - Calculate change in modulus dG for easier input into the rest of the code.
+ 
+ For Implementation of Task 3: 
+ - See Jeffries et al. 2015 "Soil Liquefaction: A Critical State Approach" Figure C7 and Eqn C.35
+ - Update input parameters/state variables during plastic deformation because of changes in principal stresses. 
+ - Must compute difference between previous alpha and new alpha. Need directional cosines. 
+ - Must create a new state variable for alpha.

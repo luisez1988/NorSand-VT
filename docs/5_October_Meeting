@@ -6,7 +6,35 @@ Tasks Completed:
 - Development of a cubic function to describe transition zone of yield surface from straight to curved (Luis)
 
 To Do:
-- Luis will share Overleaf template
-- Shared library in Zotero
+- Luis will figure out why code compilation has syntax errors
+- Luis will share Overleaf template for GSP
+- Create a shared library in Zotero
+- Luis will share incrementalDriver
+- Kaleigh will compare DS and IZ curves already coded in Python with Abdel to check
+- Abdel will create plan for next time for implementation of rot of principal stresses
 
 Discussion:
+
+How to use IncrementalDriver:
+input files: test.inp, parameters.inp, initialconditions.inp
+
+test.inp
+- line  1 - name of output file
+- line  2 - type of test (keyword)
+- line  3 - test parameters: (increment to divide strain by, # of iter per step, total time: number of steps you want to write)
+- line  4 - maximum strain (compression is negative)
+
+initialconditions.inp
+- line  1 - dimension of problem (e.g. 6 for initial stress tensor)
+- line  2 through 8 - (sig1, sig2, sig3, tau1, tau2, tau3)
+- line 9 - number of state variables of constitutive model UMAT (e.g. 23 currently)
+- lines 10 ... - initialize state variables as zeros
+
+parameters.inp
+- line 1 - NORSAND (not used)
+- line 2 - number of properties
+- line 3 through (no. of properties) - each property in order specified in UMAT
+
+to run: double click incremental driver .exe
+note: if error, deformation too large, maybe increments are too big...
+

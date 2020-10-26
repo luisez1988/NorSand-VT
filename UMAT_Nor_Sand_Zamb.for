@@ -220,7 +220,7 @@
 					   G_1, G_2, K_1, K_2, e_c, dSP1(2), dSP2(2)
 	double precision:: dEpsP1(6), dEpsP2(6), Sig1(6), dSig1(6), dSig2(6), EpsP1(6)
 	double precision:: RT_Dt, nSigma, qq
-	double precision::  Theta, J3, J2, cos3Theta, Mtheta
+	double precision::  Theta, J3, J2, cos3Theta, Mtheta, km !(km is the smoothness parameter)
 
 	  !______________________________________________________________________________________________________
 	  !| Initialization	of variables                                                                         |
@@ -231,6 +231,7 @@
 	  LTOL= 0.01d0 !Tolerance for elastic unloading
 	  ITER=10 ! Number of iterations for stress correction
 	  DTmin=0.000001d0
+	  km=0.01
 	  call getPandQ (Sig0,p,q,eta)
 	  if (G==0.0d0) G=G_0*(p/p_ref)**nG
 	  if (K==0.0d0) K=2*G*(1+nu)/(3*(1-2*nu))
@@ -307,7 +308,7 @@
 	  ! total Elastic stress
 	  call AddVec(Sig0, dSig, 1d0, 1d0, 6, SigTrial)  
 	  call getPandQ (SigTrial,pTrial,qTrial,etaTrial)
-	  call getYieldFunctionNorSand (pTrial,qTrial,CHI_tce, psi, M_tc, p_i,M_i,FT, Locus) !Evaluate yield function on trial stress	   
+	  call getYieldFunctionNorSand (km,pTrial,qTrial,CHI_tce, psi, M_tc, p_i,M_i,FT, Locus) !Evaluate yield function on trial stress	   
 	  !Check Plasticity
 	  if (FT <= FTOL) then !Elastic 
 	      !DDSDDE is DE
@@ -336,11 +337,11 @@
 	  
 	  else ! Plastic		  
 
-		  call getYieldFunctionNorSand (p,q,CHI_tce, psi, M_tc, p_i,M_i,F0, Locus) !Evaluate yield function on initial stress
+		  call getYieldFunctionNorSand (km,p,q,CHI_tce, psi, M_tc, p_i,M_i,F0, Locus) !Evaluate yield function on initial stress
 		  !Check for elasto plastic transition
 
 		  if (F0 < -FTOL) then !Elasto-plastic transition
-			  call getElasticPartNewton(FTOL, Sig0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
+			  call getElasticPartNewton(km, FTOL, Sig0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
 									refRate, G_0, nu, p_ref, nG, G, K, alpha_G, alpha_K, alpha_chi, alpha_pi, &
 									Gamma, lambda_c, CHI_tce, Chi_tc, CHIi, e, psi, M_tc, N, p_i, pi_0, M_i,alpha,&
 									SigTrial, dEpsS)
@@ -351,7 +352,7 @@
 											N, psi, Locus, IsElasticUnloading)
 				  if (IsElasticUnloading) then ! Must find intersections
 					  pi_0=p_i
-				  call getElasticPartNewton(FTOL, Sig0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
+				  call getElasticPartNewton(km, FTOL, Sig0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
 									refRate, G_0, nu, p_ref, nG, G, K, alpha_G, alpha_K, alpha_chi, alpha_pi, &
 									Gamma, lambda_c, CHI_tce, Chi_tc, CHIi, e, psi, M_tc, N, p_i, pi_0, M_i,alpha,&
 									SigTrial, dEpsS)
@@ -475,10 +476,10 @@
 									!			RefRate, alpha_G, alpha_K, G, K) !final update of elastic prop.
 			  !test yield function in new stresses
 			  call getPandQ(Sig, p,q,eta)
-			  call getYieldFunctionNorSand (p,q,CHI_tce, psi, M_tc, p_i,M_i,F0, Locus)
+			  call getYieldFunctionNorSand (km,p,q,CHI_tce, psi, M_tc, p_i,M_i,F0, Locus)
 			  
 			  if (abs(F0)>FTOL) then !stress back to yield surface
-				  call stressCorrection(ITER, FTOL, F0, dEpsSS, Sig, G_0, nu, p_ref, nG, p_i, pi_0, M_i, M_tc, N, psi, CHIi, &
+				  call stressCorrection(km, ITER, FTOL, F0, dEpsSS, Sig, G_0, nu, p_ref, nG, p_i, pi_0, M_i, M_tc, N, psi, CHIi, &
 			      CHI_tc, CHI_tce, H, e_o, e, Gamma, Lambda_c, IErateI, RefRate, K, G, Locus, Epsp)					  
 			  end if
 			  qq=min((0.9d0*sqrt(SSTOL/RT_dT)),1.1d0)
@@ -686,7 +687,7 @@ subroutine GetdSiganddSP(Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M
 	end subroutine GetdSiganddSP
 !	
 !	
-	subroutine stressCorrection(MAXIT, FTOL, F0, dEpsp, Sig, G_0, nu, p_ref, nG, p_i, pi_0, M_i, M_tc, N, psi, CHIi, &
+	subroutine stressCorrection(km, MAXIT, FTOL, F0, dEpsp, Sig, G_0, nu, p_ref, nG, p_i, pi_0, M_i, M_tc, N, psi, CHIi, &
 			     CHI_tc, CHI_tce, H, e_o, e, Gamma, Lambda_e, IErateI, RefRate, K, G, Locus, Epsp, alpha_G, alpha_K)
 	!_____________________________________________________________________________________
 	!Subroutine for computing the change in stress (dSig) and state parameters (dSP)
@@ -696,7 +697,7 @@ subroutine GetdSiganddSP(Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M
 	!input variables	
 	double precision, dimension(6), intent(in):: dEpsp
 	double precision, intent(in):: FTOL
-	double precision, intent(in):: G_0, nu, p_ref, nG, M_tc, N, CHIi, CHI_tc, CHI_tce, H
+	double precision, intent(in):: G_0, nu, p_ref, nG, M_tc, N, CHIi, CHI_tc, CHI_tce, H, km
 	double precision, intent(inout):: p_i, M_i, e, psi
 	double precision, intent(in):: e_o, Gamma, lambda_e
 	double precision, intent(in):: IErateI, RefRate, alpha_G, alpha_K
@@ -823,7 +824,7 @@ subroutine GetdSiganddSP(Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M
 	
 	!Update F2 ______________________________________________________________________________________________
 	call getPandQ(Signew, p,q,eta)
-	call getYieldFunctionNorSand(p,q, CHI_tce, psin,M_tc, p_in,M_in, F2, dummy)
+	call getYieldFunctionNorSand(km, p,q, CHI_tce, psin,M_tc, p_in,M_in, F2, dummy)
 	
 	if (abs(F2)>abs(F0)) then
 		lambda= 0.0d0
@@ -848,7 +849,7 @@ subroutine GetdSiganddSP(Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M
 		Sig=Signew
 	!Update F0
 	call getPandQ(Sig, p,q,eta)
-	call getYieldFunctionNorSand(p,q,CHI_tce,psi,M_tc, p_i,M_i,F0,dummy)
+	call getYieldFunctionNorSand(km, p,q,CHI_tce,psi,M_tc, p_i,M_i,F0,dummy)
 	count=count+1
 	end do		
 	end subroutine stressCorrection
@@ -1411,31 +1412,49 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 	end subroutine UpdatePardue2StrainRate	
 
     
-    subroutine getYieldFunctionNorSand (p,q,CHI_tc, psi, M_tc, p_image,M_image,yield, Locus)
+    subroutine getYieldFunctionNorSand (km,p,q,CHI_tc, psi, M_tc, p_image,M_image,yield, Locus)
 	   !_______________________________________________________________
 	   ! Yield function or plastic potential surface for Nor-Sand
 	   !_______________________________________________________________
            implicit none
-           double precision, intent(in) :: p, q, M_image, p_image, CHI_tc, psi, M_tc
+           double precision, intent(in) :: km, p, q, M_image, p_image, CHI_tc, psi, M_tc
            double precision, intent(out) :: yield
 		   logical, intent(out):: Locus
-		   double precision:: yield1, yield2
+		   double precision:: p_max, pr, pl, n_L, sigma, iota, C_1, C_2, C_3, C_4
 		   Locus=.false.
-		! Evaluate main yield function
-			yield1  =  q + p*M_image *(1.0d0 + log(p_image/p))
-		! Evaluate inner cap
-			yield2  =  -p_image+p*exp(-CHI_tc*psi/M_tc)            
-		! Set yield to maximun value
-			!yield= max(yield1, yield2)
-			yield= yield1
-		! Activate inner cap?
-			!Locus=((yield2>0.0d0).and.(yield2>yield1)) 
-			!if ((abs(yield1)<=0.0001).and.(abs(yield2)<=0.0001)) Locus=.false.
+		   p_max=p_image/exp(-CHI_tc*psi/M_tc)
+		   pr=p_max*(1+km)
+		   pl=p_max*(1-km)
+		   n_L=M_image*(1-CHI_tc*psi/M_tc)
+		   if (p<= pr) then !Call F1 (Normal Norsand yield surface)
+			   yield  =  q + p*M_image *(1.0d0 + log(p_image/p))
+		   elseif (p<=pl) then ! in between pr and pl evaluate cubic spline
+			      sigma=1+km
+				  iota=1-km
+				  C_1=(log(sigma)-km)/(4*km**3)
+				  C_2=((log(sigma)+1)/(2*(sigma-iota)))+3*C_1
+				  C_3=-3*(sigma**2)*C_1+2*sigma*C_2-log(sigma)-1
+				  C_4=-(sigma**3)*C_1+(sigma**2)*C_2-sigma*(C_3+log(sigma))
+				  yield=q+(M_image*C_1*p**3/(p_max**2))-(M_image*C_2*p**2/p_max)+((n_L+M_image*C_3)*p)+(p_max*M_image*C_4) 			   
+		   else !Linear surface
+				  yield=q+n_l*p
+		   endif
+		   
+		!! Evaluate main yield function
+		!	yield1  =  q + p*M_image *(1.0d0 + log(p_image/p))
+		!! Evaluate inner cap
+		!	yield2  =  -p_image+p*exp(-CHI_tc*psi/M_tc)            
+		!! Set yield to maximun value
+		!	!yield= max(yield1, yield2)
+		!	yield= yield1
+		!! Activate inner cap?
+		!	!Locus=((yield2>0.0d0).and.(yield2>yield1)) 
+		!	!if ((abs(yield1)<=0.0001).and.(abs(yield2)<=0.0001)) Locus=.false.
 	   end subroutine getYieldFunctionNorSand
 
 
  
-      subroutine getElasticPartPegasus(F0, F1, alpha0, alpha1, FTOL, stress, dSig, &
+      subroutine getElasticPartPegasus(km, F0, F1, alpha0, alpha1, FTOL, stress, dSig, &
 								p_i, M_i, M_tc, CHI_tc, psi, dstran, dEpsS, alpha, Sig)
 	  !_________________________________________________________________
 	  !Pegasus algorithm to determine elastic part in elastic unloading
@@ -1462,7 +1481,7 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
             SigNew(I) = stress(I) + alpha*dSig(I)
           end do
           call getPandQ (SigNew, pNew, qNew, etaNew)
-          call getYieldFunctionNorSand (pNew,qNew, CHI_tc, psi, M_tc, p_i, M_i, FNew, Locus)
+          call getYieldFunctionNorSand (km,pNew,qNew, CHI_tc, psi, M_tc, p_i, M_i, FNew, Locus)
           if ( (FNew*F0) < 0. ) then
             alpha1 = alpha
             F1 = Fnew
@@ -1498,14 +1517,14 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
         end if
       end subroutine getElasticPartPegasus
 !
-      subroutine getElasticPartUnload(Locus, F0, stress, dSig, Sig, dstran, &
+      subroutine getElasticPartUnload(km, Locus, F0, stress, dSig, Sig, dstran, &
 						CHI_tc, psi, M_tc,M_i, p_i, FTOL, dEpsS, alpha)
 	  !__________________________________________________________________
 	  !Elastic unloading Pegasus scheme
 	  !__________________________________________________________________
         implicit none
 		!input variables		 		
-		double precision, intent(in) :: M_i, p_i, CHI_tc, psi, M_tc
+		double precision, intent(in) :: M_i, p_i, CHI_tc, psi, M_tc, km
         double precision,intent(in):: FTOL
 		logical, intent(in):: Locus
         double precision,intent(inout)::stress(6), dEpsS(6), dstran(6)
@@ -1531,7 +1550,7 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 			!get invariant stresses of stress trial
 			call getPandQ (Sig1,pNew,qNew,eta)           
             !test yield function
-			call getYieldFunctionNorSand (pNew,qNew, CHI_tc, psi, M_tc,p_i,M_i,FNew, Locus) 
+			call getYieldFunctionNorSand (km,pNew,qNew, CHI_tc, psi, M_tc,p_i,M_i,FNew, Locus) 
 			
             if ( FNew > FTOL ) then
               alpha1 = alpha
@@ -1556,13 +1575,13 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 		
 		return
         !found the intersection, call Pegasus scheme to determine the exact value
-200		call getElasticPartPegasus(F0, F1, alpha0, alpha1, FTOL, stress, dSig, &
+200		call getElasticPartPegasus(km,F0, F1, alpha0, alpha1, FTOL, stress, dSig, &
 								p_i, M_i, M_tc, CHI_tc, psi, dstran, dEpsS, alpha, Sig)
 
       end subroutine getElasticPartUnload
 !
 !	
-	subroutine getElasticPartNewton(FTOL, Sig_0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
+	subroutine getElasticPartNewton(km, FTOL, Sig_0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
 									refRate, G_0, nu, p_ref, nG, G, K, alpha_G, alpha_K, alpha_chi, alpha_pi, &
 									Gamma, lambda, CHI_tce, Chi_tc, CHIi, e, psi, M_tc, N, p_i, pi_0, M_i,alphaNewton,&
 									Sig, dEpsS)
@@ -1572,7 +1591,7 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 	!__________________________________________________________________
 	implicit none
 	!input variables
-	double precision, intent(in):: FTOL, Sig_0(6), dEps(6), RefRate
+	double precision, intent(in):: FTOL, Sig_0(6), dEps(6), RefRate, km
 	double precision, intent(in):: Chi_tc, M_tc, N, pi_0, alpha_chi, alpha_pi
 	double precision, intent(in):: G_0, nu, p_ref, nG, alpha_G, alpha_K
 	double precision, intent(in):: Gamma, Lambda, IErateI
@@ -1673,7 +1692,7 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 		!_____________________________________________________________________________________________
 		!Get new Alpha
 		call getPandQ(SigT, p, q, eta)
-		call getYieldFunctionNorSand(p, q, CHI_tcenew, psi_new, M_tc, p_inew,M_inew,FNewton, Locus)
+		call getYieldFunctionNorSand(km, p, q, CHI_tcenew, psi_new, M_tc, p_inew,M_inew,FNewton, Locus)
 		AlphaNewton=AlphaNewton-FNewton/Fp		
 	end do
 	!output

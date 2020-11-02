@@ -1461,7 +1461,7 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 	  !_________________________________________________________________
         implicit none
 		!Input variable          
-        double precision,intent(in):: p_i, M_i, CHI_tc, psi, M_tc, FTOL
+        double precision,intent(in):: p_i, M_i, CHI_tc, psi, M_tc, FTOL, km
 		!output variables
         double precision,intent(inout)::dSig(6), alpha0, alpha1, stress(6)
         double precision,intent(inout)::F0, F1, alpha, dEpsS(6), dstran(6), Sig(6)

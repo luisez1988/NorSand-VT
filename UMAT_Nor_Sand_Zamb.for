@@ -271,7 +271,7 @@
 	  !|_____________________________________________________________________________________________________|	  
 	  dErate=Erate-Erate0
 	  dErate_eff=IErateI-IErate0I !Increment of effective strain rate
-	  
+	  ! Degrade G
 	  call check4crossing(IErate0I, IErateI, dErate_eff, RefRate, ApplyStrainRateUpdates)	  
 	  if (abs(dErate_eff)==IErateI) then!Trim increment of strain rate
 		 dErate_eff=dErate_eff-RefRate
@@ -318,7 +318,7 @@
 		  !Update state parameters due to change in Lode's angle
 	      e = e + dEpsvol * ( 1. + e) !Update void ratio
           call ElasticUpdating(Sig, dSig, G_0, nu, p_ref, nG, M_tc, p_i, N, &
-								IErateI, RefRate, CHIi, e, Gamma, lambda_c, &
+								IErateI, IErate0I, RefRate, CHIi, e, Gamma, lambda_c, &
 		                       psi, M_i,alpha_G, alpha_K, G, K)	
 		  
 		  if (switch_yield) pi_0=p_i	!In case of unloading	  
@@ -349,7 +349,7 @@
 			  if (F0 <= FTOL) then
 				  !Check direction of stress path with respect to actual yield surface
 				  call CheckElasticUnloading(LTOL, Sig0, dSig, p_i, M_i, M_tc, CHIi, CHI_tce, &
-											N, psi, Locus, IsElasticUnloading)
+											N, psi, km, IsElasticUnloading)
 				  if (IsElasticUnloading) then ! Must find intersections
 					  pi_0=p_i
 				  call getElasticPartNewton(km, FTOL, Sig0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
@@ -406,7 +406,7 @@
 		  G_1=G
 		  K_1=K
 		  !First estimate of associated stress
-		  call GetdSiganddSP (Locus, SigTrial, Epsp, dEpsSS, p_i1, pi_0, M_i1, psi_1, CHI_tce1, M_tc, CHI_tc, CHIi_1&
+		  call GetdSiganddSP (km, Locus, SigTrial, Epsp, dEpsSS, p_i1, pi_0, M_i1, psi_1, CHI_tce1, M_tc, CHI_tc, CHIi_1&
 			         , N, e_o, e_1 ,Gamma, lambda_c, G_0, nG, p_ref, nu, alpha_G, alpha_K, alpha_pi, alpha_chi, &
 							  IErate0I, IErateI, dErate_eff, RefRate, H, G_1, K_1, dEpsP1, dSig1, dSP1)
 
@@ -429,7 +429,7 @@
 		  K_2=K
 		  
 		  !Find second approximation evaluated at sig+dSig1 and SP+dSP1
-		  call GetdSiganddSP (Locus, Sig1, Epsp1, dEpsSS, p_i2, pi_0, M_i2, psi_2, CHI_tce2, M_tc, CHI_tc, CHIi_2&
+		  call GetdSiganddSP (km, Locus, Sig1, Epsp1, dEpsSS, p_i2, pi_0, M_i2, psi_2, CHI_tce2, M_tc, CHI_tc, CHIi_2&
 			         , N, e_o, e_2 ,Gamma, lambda_c, G_0, nG, p_ref, nu, alpha_G, alpha_K, alpha_pi, alpha_chi, &
 							  IErate0I, IErateI, dErate_eff, RefRate, H, G_2, K_2, dEpsP2, dSig2, dSP2)
 	!________________________________________________________________________________________________________
@@ -522,7 +522,7 @@
 	!******************************************* Internal subroutines*****************************************
 	!*********************************************************************************************************
 	!_________________________________________________________________________________________________________
-subroutine GetdSiganddSP(Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M_tc, CHI_tc, CHIi, N, e_o, e &
+subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M_tc, CHI_tc, CHIi, N, e_o, e &
 						,Gamma, lambda_e, G_0, nG, p_ref, nu, alpha_G, alpha_K, alpha_pi, alpha_chi, &
 						IErate0I, IErateI, dErate_eff, RefRate, H, G, K, dEpsP, dSig, dSP)
 	!_____________________________________________________________________________________
@@ -532,7 +532,7 @@ subroutine GetdSiganddSP(Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M
 	implicit none
 	!input variables	
 	double precision, dimension(6), intent(in):: dEps, Sig, Epsp
-	double precision, intent(in):: G_0, nu, p_ref, nG, alpha_G, alpha_K
+	double precision, intent(in):: G_0, nu, p_ref, nG, alpha_G, alpha_K, km
 	double precision, intent(in):: M_tc, N, CHI_tc, H
 	double precision, intent(in):: e_o, Gamma, lambda_e
 	double precision, intent(in):: IErate0I, IErateI, dErate_eff, RefRate
@@ -561,11 +561,11 @@ subroutine GetdSiganddSP(Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M
 	call getPandQ(Sig, p, q, eta)
 
 	!get dFdSig and dPPdSig for inner cap evaluated at Sig, M_i, p_i, psi_i
-	call getdFdSig(Locus, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPPdSig)
+	call getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPPdSig)
 
 	
 	!get dFdSP evaluated at Sig, M_i, p_i, psi_i
-	call getdFdSP(Locus, Sig, M_i, p_i, psi, CHIi, lambda_e, N, CHI_tce, M_tc, p, dFdSP)
+	call getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda_e, N, CHI_tce, M_tc, p, dFdSP)
 	
 	! get dSPdEpsp evaluated at Sig, M_i, p_i
 	call getdSPdEpsp(Locus, Sig, Epsp, dEps, e_o, H, p_i, pi_0, p, M_i, M_tc,&
@@ -726,10 +726,10 @@ subroutine GetdSiganddSP(Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M
 	call getPandQ(Sig, p, q, eta)
 
 	!get dFdSig and dPPdSig for inner cap evaluated at Sig, M_i, p_i, psi_i
-	call getdFdSig(Locus, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPPdSig)
+	call getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPPdSig)
 	
 	!get dFdSP evaluated at Sig, M_i, p_i, psi_i
-	call getdFdSP(Locus, Sig, M_i, p_i, psi, CHIi, lambda_e, N, CHI_tce, M_tc, p, dFdSP)
+	call getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda_e, N, CHI_tce, M_tc, p, dFdSP)
 	
 	! get dSPdEpsp evaluated at Sig, M_i, p_i
 	call getdSPdEpsp(Locus, Sig, Epsp, dEpsp, e_o, H, p_i, pi_0, p, M_i, M_tc, &
@@ -1022,167 +1022,229 @@ subroutine GetdSiganddSP(Locus, Sig, Epsp, dEps, p_i, pi_0, M_i, psi, CHI_tce, M
   
 	
 	
-subroutine getdFdSig(Locus, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPPdSig)
+subroutine getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPPdSig)
 		!PartialFtoPartialSigma
 		implicit none
-        double precision, intent(in) ::Sig(6), p_i, M_tc, CHIi, N, psi, M_i, CHI_tce
-		logical, intent(in):: Locus
-        double precision, intent(out) :: dFdSig(6), dPPdSig(6)
+        double precision, intent(in) ::Sig(6), p_i, M_tc, CHIi, N, psi, M_i, CHI_tce, km
+		double precision, intent(out) :: dFdSig(6), dPPdSig(6)
         double precision :: dFdp, dpdSig(6), dqdSig(6), dFdM, dThetadSig(6), xM
 		double precision :: dMdTheta, dFdq
         double precision :: p, q , eta,J2, J3, dJdSig(6), dJ3dSig(6), &
 							theta, cos3Theta, F1(6), F2(6), F3(6), pi, Dmin
+		double precision :: p_max, pr, pl, n_L, M_itc
+		double precision :: dMidMtheta, sigma, iota, C_1, C_2, C_3, C_4, dMidtheta, dFdnL, dnLdTheta
+		double precision :: dFdTheta
         integer :: I
 		  
 		PARAMETER (pi=3.14159265359D0)
 		call getPandQ (Sig,p,q,eta)
-		if (.not.Locus) then !Outer surface
-		!*****************************************************************************************************  
-			
-			!___________ Get dFdM*dMdTheta*dThetadSig=F1__________________
-			dFdM= p * (1.0d0+log(p_i/p))
-
+	    p_max=p_i/exp(-CHI_tce*psi/M_tc)
+		pr=p_max*(1+km)
+		pl=p_max*(1-km)
+		n_L=M_i*(1-CHI_tce*psi/M_tc)
+		M_itc=M_tc*(1-CHIi*N*abs(psi)/M_tc)
+		
+		!_____ Invariant derivatives______________________________________________________________
+		call ZERO1(dPdSig,6)
+		call ZERO1(dQdSig,6)      
+		do I = 1, 3
+				dPdSig(I) = 1./3.   
+				if (q == 0 ) then
+					dQdSig(I)=0
+				else
+					dQdSig(I) =  3. / 2. / q * (Sig(I) - p)
+				end if
+		end do
+		do I = 4, 6
+				dPdSig(I) = 0. 
+				if (q == 0 ) then
+					dQdSig(I)=0
+				else
+					dQdSig(I) =  3. / q * (Sig(I) )
+				endif
+		end do 
+		call ZERO1(dJdSig,6)
+		call ZERO1(dJ3dSig,6)
+		call getInvariants (Sig, J2, dJdSig, J3, dJ3dSig)
+		call getMlode (Sig,M_tc,theta,J3,J2,cos3Theta,xM)  
 		  
-			call ZERO1(dJdSig,6)
-			call ZERO1(dJ3dSig,6)
-			call getInvariants (Sig, J2, dJdSig, J3, dJ3dSig)
-			call getMlode (Sig,M_tc,theta,J3,J2,cos3Theta,xM)		  
+		dMdTheta = -(3./2. * M_tc**2 /(3.+ M_tc))*sin((-3.0d0*theta/2)+pi/4.0d0)
 		  
-			dMdTheta = -(3./2. * M_tc**2 /(3.+ M_tc))*sin((-3.0d0*theta/2)+pi/4.0d0)*(1.0d0-(N*CHIi*abs(psi)/M_tc))
+		call ZERO1(dThetadSig,6)
 		  
-			call ZERO1(dThetadSig,6)
-		  
-			if (  sqrt(J2) < 0.01d0) then ! avoid dividing by 0
-					do I = 1, 6
-						dThetadSig(I) = 0.
-					end do
-			else
-					if (-1.e-16 < cos3Theta < 1e-16) then  ! avoid dividing by 0
-						if (cos3Theta == 0) then 
-							do I = 1, 6
-								dThetadSig(I) = 0.
-							end do
-						else
-							do I = 1, 6
-							! Need to confirm the correct sign + or - ? 
-				dThetadSig(I) = sqrt(3.)/2./ cos3Theta/sqrt(J2**3.)*(dJ3dSig(I) &
-							- 3./2.*J3/J2*dJdSig(I) ) 
-							end do
-						end if
+		if (  sqrt(J2) < 0.01d0) then ! avoid dividing by 0
+				do I = 1, 6
+					dThetadSig(I) = 0.
+				end do
+		else
+				if (-1.e-16 < cos3Theta < 1e-16) then  ! avoid dividing by 0
+					if (cos3Theta == 0) then 
+						do I = 1, 6
+							dThetadSig(I) = 0.
+						end do
+					else
+						do I = 1, 6
+						! Need to confirm the correct sign + or - ? 
+			dThetadSig(I) = sqrt(3.)/2./ cos3Theta/sqrt(J2**3.)*(dJ3dSig(I) &
+						- 3./2.*J3/J2*dJdSig(I) ) 
+						end do
 					end if
-			end if
+				end if
+		end if
+		!_______________________________________________________________________________________________
+		
+		if (p<= pr) then !Use original surface
+		!___________ Get dFdM*dMdTheta*dThetadSig=F1__________________	
+			dFdM= p * (1.0d0+log(p_i/p))
+			dMidMtheta=(1.0d0-(N*CHIi*abs(psi)/M_tc))
 			call ZERO1(F1,6)
 			do I= 1, 6
-				F1(I)=dFdM * dMdTheta * dThetadSig(I)
+				F1(I)=dFdM* dMidMtheta * dMdTheta * dThetadSig(I)
 			end do
-			!__________________________________________________________________
-		
-			!____________Get dFdp*dpdSig=dF2 and dFdq*dqdSig=F3_________________________
-				  
-			call ZERO1(dPdSig,6)
-			call ZERO1(dQdSig,6)
-			dFdQ = 1.
+		!_________ Get dFdp*dp*dSig=F2_________________________________
 			dFdP=M_i*log(p_i/p)
-       
-			do I = 1, 3
-					dPdSig(I) = 1./3.   
-					if (q == 0 ) then
-						dQdSig(I)=0
-					else
-						dQdSig(I) =  3. / 2. / q * (Sig(I) - p)
-					end if
-			end do
-			do I = 4, 6
-					dPdSig(I) = 0. 
-					if (q == 0 ) then
-						dQdSig(I)=0
-					else
-						dQdSig(I) =  3. / q * (Sig(I) )
-					endif
-			end do 
-		
 			call ZERO1(F2,6)
-			call ZERO1(F3,6)
-			call ZERO1(dFdSig,6)
-			call ZERO1(dPPdSig,6)
-			do I = 1, 6
-					F2(I) = dFdQ*dQdSig(I)
-					F3(I) = dFdP*dPdSig(I)
-					dFdSig(I)=F1(I)+F2(I)+F3(I)
-			end do
-			dPPdSig=dFdSig
-	!_____________________________________________________________________________
-	!********************************************************************************************************
-		else !inner surface
-		call ZERO1(dPdSig,6) 
-		call ZERO1(dQdSig,6)
-			dFdQ = 1.
-       
-			do I = 1, 3
-					dPdSig(I) = 1./3.   
-					if (q == 0 ) then
-						dQdSig(I)=0
-					else
-						dQdSig(I) =  3. / 2. / q * (Sig(I) - p)
-					end if
-			end do
-			do I = 4, 6
-					dPdSig(I) = 0. 
-					if (q == 0 ) then
-						dQdSig(I)=0
-					else
-						dQdSig(I) =  3. / q * (Sig(I) )
-					endif
-			end do 
-		!___Get dFdSig=dFdp*dpdSig________________________________________________
-			dFdp=exp(-CHI_tce*psi/M_tc)
-			call ZERO1(dFdSig,6)
-			do I=1,3
-				dFdSig(I)=dPdSig(I)*dFdp
+			do I= 1, 6
+				F2(I) = dFdP*dPdSig(I)
 			enddo
-		!___Get dPPdSig=dqdSig-Dmin*dpdSig assuming non assosiative flow rule for inner cap________________
+		!________ Get dFdq*dqdSig= dqdSig= F3__________________________
+			call ZERO1(F3,6)
+			do I= 1, 6
+				F3(I) = dQdSig(I)
+			enddo
+		!_______ Obtain dFdSig_________________________________________
+			dFdSig=F1+F2+F3
+!______________________________________________________________________________________________________
+!______________________________________________________________________________________________________
+		elseif (p<=pl) then ! Use the transition surface
+			sigma=1+km
+			iota=1-km
+			C_1=(log(sigma)-km)/(4*km**3)
+			C_2=((log(sigma)+1)/(2*(sigma-iota)))+3*C_1
+			C_3=-3*(sigma**2)*C_1+2*sigma*C_2-log(sigma)-1
+			C_4=-(sigma**3)*C_1+(sigma**2)*C_2-sigma*(C_3+log(sigma))
+		!___________ Get (dFdM*dMdTheta+dFdetaL detaLdtheta) dThetadSig=F1__________________
+			dFdM=(C_1*(p**3)/p_max**2)-(C_2*p**2/p_max)+(C_3*p)+p_max*C_4
+			dMidtheta=(1.0d0-(N*CHIi*abs(psi)/M_tc))*dMdTheta
+			dFdnL=p
+			dnLdTheta=dMdTheta*(1-(CHIi*(N*abs(psi)+psi)/M_tc))
+			dFdTheta=dFdM*dMidtheta+dFdnL*dnLdTheta
+			call ZERO1(F1,6)
+			do I= 1, 6
+				F1(I)=dFdTheta* dThetadSig(I)
+			end do
+		!_________ Get dFdp*dpdSig=F2_________________________________
+			dFdP=(3.0d0*M_i*C_1)*(p/p_max)**2-(2*M_i*C_2)*(p/p_max)+(n_L+M_i*C_3)
+			call ZERO1(F2,6)
+			do I= 1, 6
+				F2(I) = dFdP*dPdSig(I)
+			enddo
+		!________ Get dFdq*dqdSig= dqdSig= F3__________________________
+			call ZERO1(F3,6)
+			do I= 1, 6
+				F3(I) = dQdSig(I)
+			enddo
+		!_______ Obtain dFdSig_________________________________________
+			dFdSig=F1+F2+F3	
+!_______________________________________________________________________________________________________
+!_______________________________________________________________________________________________________
+		else !Use linear surface
+		!___________ Get dFdnL*dnLdtheta*dThetadSig=F1__________________
+			dFdnL=p
+			dnLdTheta=dMdTheta*(1-(CHIi*(N*abs(psi)+psi)/M_tc))
+			call ZERO1(F1,6)
+			do I= 1, 6
+				F1(I)=dFdnL*dnLdTheta* dThetadSig(I)
+			end do
+		!_________ Get dFdp*dpdSig=F2____________________________________
+			dFdp=n_L
+			call ZERO1(F2,6)
+			do I= 1, 6
+				F2(I) = dFdP*dPdSig(I)
+			enddo
+		!________ Get dFdq*dqdSig= dqdSig= F3__________________________
+			call ZERO1(F3,6)
+			do I= 1, 6
+				F3(I) = dQdSig(I)
+			enddo
+		!_______ Obtain dFdSig_________________________________________
+			dFdSig=F1+F2+F3				
+		endif
+
+		if (p_max>= p) then ! Associated
+			dPPdSig=dFdSig
+		else !Non associated
 			call ZERO1(dPPdSig,6)
 			Dmin=CHIi*psi
 			do I=1,3
-				dPPdSig(I)=dQdSig(I)-Dmin*dPdSig(I)
+				dPPdSig(I)=dQdSig(I)+Dmin*dPdSig(I) !not sure about the sign
 			enddo
-			
-	!********************************************************************************************************
 	end if
  
 end subroutine  getdFdSig
 
-	!
-	subroutine getdFdSP(Locus, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, dFdSP)
-		!_____________________________________________________________________
-		! obtain the derivative of the yield function with respect to 
-		! the state parameters M_i and p_i
-		!____________________________________________________________________
+
+subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, dFdSP)
+	!_____________________________________________________________________
+	! obtain the derivative of the yield function with respect to 
+	! the state parameters M_i and p_i
+	!____________________________________________________________________
 	
-		implicit none
-		!Input variables
-		double precision, intent(in):: M_i, p_i, p, psi, CHI_tce, M_tc, CHIi, lambda, N
-		double precision, dimension(6), intent(in):: Sig
-		logical:: Locus
-		!output variables
-		double precision, dimension(2), intent(out):: dFdSP
-		!local variables
-		double precision:: dFdM, Mtheta, theta, J3, J2, cos3Theta
-		
-		if (.not.locus) then !Outer surface
-			dFdM=p*(1.0d0+log(p_i/p))
-			call getMlode(Sig, M_tc, theta, J3, J2, cos3Theta, Mtheta)	
-			dFdSP(1)=-dFdM*Mtheta*N*CHIi*abs(psi)*lambda/(M_tc*psi*p_i)
-			dFdSP(1)=dFdSP(1)+(M_i*p/p_i)
-			!Here Xhi_tc is set as the second state variable for handling the strain rates
-			!dFdChitc=dFdMi*dMidChii*dChiidXhitc			
-     	    dFdSP(2)=-dfdM*Mtheta*N*abs(psi)/(M_tc*(1-Chi_tce*lambda/M_tc)**2)
-		else !inner surface
-			!dFdSP={dFdpi, dFdDmin}
-			dFdSP(1)=-1.
-			dFdSP(2)=-p*exp(-CHI_tce*psi/M_tc)/M_tc
-		endif
-	end subroutine getdFdSP
+	implicit none
+	!Input variables
+	double precision, intent(in):: M_i, p_i, p, psi, CHI_tce, M_tc, CHIi, lambda, N, km
+	double precision, dimension(6), intent(in):: Sig		
+	!output variables
+	double precision, dimension(2), intent(out):: dFdSP
+	!local variables
+	double precision:: dFdM, Mtheta, theta, J3, J2, cos3Theta,p_max, pr, pl
+	double precision:: n_L, sigma, iota, C_1, C_2, C_3, C_4
+	double precision:: dFdnL, dFdp_max, dMidpi, dnLdpi, dpmaxdpi, M_itc, dMidChi_tc, dn_LdChi_tc
+	double precision:: dpmaxdChi_tc
+	p_max=p_i/exp(-CHI_tce*psi/M_tc)
+	pr=p_max*(1+km)
+	pl=p_max*(1-km)
+	n_L=M_i*(1-CHI_tce*psi/M_tc)
+	M_itc=M_tc*(1-CHIi*N*abs(psi)/M_tc)
+	call getMlode(Sig, M_tc, theta, J3, J2, cos3Theta, Mtheta)	
+	if (p<= pr) then !Call dF1/dSP
+		dFdM=p*(1.0d0+log(p_i/p))			
+		dFdSP(1)=-dFdM*Mtheta*N*CHIi*abs(psi)*lambda/(M_tc*psi*p_i)
+		dFdSP(1)=dFdSP(1)+(M_i*p/p_i)
+		!Here Xhi_tc is set as the second state variable for handling the strain rates
+		!dFdChitc=dFdMi*dMidChii*dChiidXhitc			
+     	dFdSP(2)=-dfdM*Mtheta*N*abs(psi)/(M_tc*(1-Chi_tce*lambda/M_tc)**2)
+
+	elseif (p<=pl) then ! dF2/dSp
+		sigma=1+km
+		iota=1-km
+		C_1=(log(sigma)-km)/(4*km**3)
+		C_2=((log(sigma)+1)/(2*(sigma-iota)))+3*C_1
+		C_3=-3*(sigma**2)*C_1+2*sigma*C_2-log(sigma)-1
+		C_4=-(sigma**3)*C_1+(sigma**2)*C_2-sigma*(C_3+log(sigma))
+		!______ First term derivatives ______________________________________________
+		dFdM=(C_1*(p**3)/p_max**2)-(C_2*p**2/p_max)+(C_3*p)+p_max*C_4
+		dFdnL=p
+		dFdp_max=-2*M_i*C_1*(p/p_max)**3+M_i*C_2*(p/p_max)**2+M_i*C_4
+		!____________________________________________________________________________
+		!_____Second term derivatives _______________________________________________
+		dMidpi=-CHIi*N*Mtheta*lambda*abs(psi)/(M_tc*p_i*psi)
+		dnLdpi=-(Mtheta*CHIi*lambda/M_tc*p_i)*((N*abs(psi))/psi+1)
+		dpmaxdpi=exp(CHii*psi/M_tc)*(1+(CHIi*N/(M_itc*p_i) *(1+(CHIi*N*abs(psi))/M_itc)))!FIX THIS. Approximating Mi_tc to M_tc
+		!____________________________________________________________________________
+		dFdSP(1)=dFdM*dMidpi+dFdnL*dnLdpi+dFdp_max*dpmaxdpi
+		!____ Now find the dFdChi_tc_________________________________________________
+		dMidChi_tc=-Mtheta*N*abs(psi)/(M_tc*(1-Chi_tce*lambda/M_tc)**2)
+		dn_LdChi_tc= -Mtheta*(N*abs(psi)+psi)/(M_tc*(1-Chi_tce*lambda/M_tc)**2)
+		dpmaxdChi_tc=p_i*exp(CHii*psi/M_tc)*(1+CHIi*N*abs(psi)/M_itc)/(M_tc*(1-Chi_tce*lambda/M_tc)**2)
+		!____________________________________________________________________________
+		dFdSP(2)=dFdM*dMidChi_tc+dFdnL*dn_LdChi_tc+dFdp_max*dpmaxdChi_tc
+	else !dF3/dSP
+		dFdSP(1)=-p*(Mtheta*CHIi*lambda/M_tc*p_i)*((N*abs(psi))/psi+1)
+		!____________________________________________________________________________
+		dFdSP(2)=-p*Mtheta*(N*abs(psi)+psi)/(M_tc*(1-Chi_tce*lambda/M_tc)**2)				 
+	endif		
+end subroutine getdFdSP
 	!
 	subroutine getdSPdEpsp(Locus, Sig, Epsp, dEps, e_o, H, p_i, pi_0, p, M_i, M_tc, CHIi, &
 							CHI_tce, psi, N, lambda, dSPdEpsp)
@@ -1630,10 +1692,10 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 		chi_tcenew=CHI_tc*(1.0+alpha_chi*log10(IErateTI/refRate))
 		Gi=(G_0*(p/p_ref)**nG)*(1.0+alpha_G*log10(IErateTI/refRate))
 		Ki=(G_0*(p/p_ref)**nG)*(2.*(1.+nu)/(3.*(1.-2.*nu)))*(1.0+alpha_K*log10(IErateTI/refRate))		
-		else
+		else !Check This
 		Gi=G
 		Ki=K		
-		psi_new=p_i
+		p_inew=p_i
 		Chi_tcenew=CHi_tce
 		end if
 		
@@ -1662,9 +1724,9 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 		SigT=Sig_0+dSigEl
 		!___________________________________________________________________________________________
 		!Get the derivative of F with respect to the state parameters
-		call getdFdSP(.false., SigT, M_inew, p_inew, psi_new, CHIi_new, lambda, N,&
+		call getdFdSP(km, SigT, M_inew, p_inew, psi_new, CHIi_new, lambda, N,&
 						CHI_tcenew, M_tc, p, dFdSP)
-		Fp=(dFdSP(1)*dSPRate(1)+dFdSP(1)*dSPRate(2))/alphaNewton
+		Fp=(dFdSP(1)*dSPRate(1)+dFdSP(2)*dSPRate(2))/alphaNewton
 		!___________________________________________________________________________________________
 		!Get dFdalpha*dSigdAlpha
 		dDdK=0.0
@@ -1684,7 +1746,7 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 		call MatVec(AlphaD, 6, dEps, 6, dSigdAlpha)
 		!____________________________________________________________________________________________
 		!Get derivative with respect to the stress tensor
-		call getdFdSig(.false., SigT, p_inew, M_inew, M_tc, CHIi_new, CHI_tcenew, N, psi_new, &
+		call getdFdSig(km, SigT, p_inew, M_inew, M_tc, CHIi_new, CHI_tcenew, N, psi_new, &
 						dFdSig, dFdSig)
 		do I=1,6 !dot product
 			Fp=Fp+dFdSig(I)*dSigdAlpha(I)
@@ -1713,7 +1775,7 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 	end subroutine getElasticPartNewton
 	
 	 Subroutine CheckElasticUnloading(LTOL, Sig, dSig, p_i, M_i, M_tc, CHIi, CHI_tce,&
-									  N, psi, Locus, IsElasticUnloading)
+									  N, psi, km, IsElasticUnloading)
 	!_____________________________________________________________________	
 	! It returs true if the stress path correspond to elastic unloading 	
 	!_____________________________________________________________________
@@ -1725,14 +1787,14 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 	double precision, dimension(6) :: dFdSig
 	!In Variables
 	double precision, intent(in), dimension(6) :: Sig, dSig
-	double precision, intent(in) :: M_tc, N, p_i, psi, CHIi, CHI_tce, LTOL, M_i
-	logical, intent(in) :: Locus
+	double precision, intent(in) :: M_tc, N, p_i, psi, CHIi, CHI_tce, LTOL, M_i, km
+	
 	!Out Variables
 	Logical, intent(out) :: IsElasticUnloading
 	
 	
 	!Calulate yield function derivative with respect to stress
-	call getdFdSig(Locus, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dummy)
+	call getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dummy)
 
 	!calculate the 2-norms of the tensors
 	call TwoNormTensor2(dSig, 6, NormDSig)
@@ -1775,7 +1837,7 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 	end subroutine UpdateGandKdue2confinement
 	
 	subroutine ElasticUpdating(Sig, dSig, G_0, nu, p_ref, nG, M_tc, p_i, N, &
-								IErateI, RefRate, CHIi, e, Gamma, lambda &
+								IErateI, IErate0I, RefRate, CHIi, e, Gamma, lambda &
 		                        ,psi, M_i, alpha_G, alpha_K,G, K)
 	!______________________________________________________________________________
 	!Updates the state parameter for an elastic load path
@@ -1783,24 +1845,29 @@ subroutine UpdatePardue2StrainRate(alpha,IErate0I, IErateI, dNErate, Refrate, Pa
 	implicit none
 	!Input variables
 	double precision, intent(in):: Sig(6), dSig(6), M_tc, p_i, N, CHIi
-	double precision, intent(in):: G_0, nu, p_ref, nG, IErateI, RefRate
+	double precision, intent(in):: G_0, nu, p_ref, nG, IErateI,IErate0I,  RefRate
 	double precision, intent(in):: e, Gamma, lambda, alpha_G, alpha_K
 	!out variables
 	double precision, intent(inout):: psi, M_i, G, K
 	!local variables
 	double precision:: theta, J3, J2, cos3Theta, Mtheta, e_c, p, q, eta
+	logical :: ApplyStrainRateUpdating
 	
 	call getMlode (Sig, M_tc,theta,J3,J2,cos3Theta,Mtheta)
 	call getPandQ(Sig, p,q,eta)
 	e_c=Gamma-lambda*log(-p_i)
 	psi=e-e_c
 	call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi, M_i)
-	!Update
+	!Update Only for strain rate reference 
+	call check4crossing(IErate0I, IErateI, (IErateI-IErate0I), RefRate, ApplyStrainRateUpdating)
+	if (ApplyStrainRateUpdating) then
 	G=G_0*((p/p_ref)**nG)*(1.0d0+alpha_G*log10(IErateI/RefRate))
 	K=G_0*((p/p_ref)**nG)*2.0*(1.0+nu)/(3.0*(1.0-2.0*nu))*(1.0d0+alpha_K*log10(IErateI/RefRate))
-	!call UpdateGandKdue2confinement(Sig, dSig, G_0, nu, p_ref, nG, IErateI, RefRate, alpha_G, alpha_K, G, K)
+	else
+	G=G_0*((p/p_ref)**nG)
+	K=G_0*((p/p_ref)**nG)
+	end if
 	end subroutine ElasticUpdating
-	
 
 !/////////////////////////////////////////////////////////////////////////////////////////////////////////////	
 	!_________________________________________________________________________________________________________

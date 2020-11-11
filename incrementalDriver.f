@@ -36,23 +36,25 @@
        character*80  cmname,rebarn
        integer ndi,nshr,ntens,nstatv,nprops,ncrds
        integer noel,npt,layer,kspt,lrebar,kinc,i
-       real(8),parameter,dimension(3,3):: delta =
-     &                          reshape((/1,0,0,0,1,0,0,0,1/),(/3,3/))
+	   real(8), allocatable, dimension(:):: InterpolatedStrainInc
+	   real(8), allocatable, dimension(:,:):: StrainInc
+       real(8),parameter,dimension(3,3):: delta = &
+                               reshape((/1,0,0,0,1,0,0,0,1/),(/3,3/))
 
       parameter(ntens=6,ndi=3,nshr=3,ncrds=3) ! same ntens as in SOLVER
       parameter( noel=1 ,npt=1,layer=1,kspt=1,lrebar=1)
       parameter( rebarn ='xxx')
       real*8 dtime,temp,dtemp,sse,spd,scd,rpl,drpldt,pnewdt,celent
-      real*8 stress(ntens),
-     &  ddsdde(ntens,ntens),ddsddt(ntens),drplde(ntens),
-     &  stran(ntens),dstran(ntens),time(2),predef(1),dpred(1),
-     &  coords(ncrds),drot(3,3),dfgrd0(3,3),dfgrd1(3,3)
+      real*8 stress(ntens), &
+      ddsdde(ntens,ntens),ddsddt(ntens),drplde(ntens), &
+      stran(ntens),dstran(ntens),time(2),predef(1),dpred(1), &
+      coords(ncrds),drot(3,3),dfgrd0(3,3),dfgrd1(3,3) 
       character(len=1) :: aChar                                       ! AN 2016
-      character(len=40):: keywords(10), outputfilename,
-     &        parametersfilename,
-     &       initialconditionsfilename, testfilename, outputfilename1,
-     &       exitCond, ImportFileName,mString, keyword2,                 ! AN 2016
-     &       aShortLine, leftLine, rightLine
+      character(len=40):: keywords(10), outputfilename, &
+             parametersfilename, &
+            initialconditionsfilename, testfilename, outputfilename1, &
+            exitCond, ImportFileName,mString, keyword2, &                 ! AN 2016
+            aShortLine, leftLine, rightLine
       character(len=260) ::  inputline(6), aLine, heading
       character(len=520) :: hugeLine
 
@@ -65,79 +67,79 @@
       real(8), dimension(6)  :: mb, mbinc
 
 
-      integer :: mImport, columnsInFile(7),every,ievery                 ! AN 2016
+      integer :: nImport, mImport, columnsInFile(7),every,ievery                 ! AN 2016
       real(8) ::  importFactor(7)
       real(8),dimension(20) :: oldState, newState,dState
       real(8), allocatable :: props(:), statev(:), r_statev(:)
 
       real(8),dimension(3,3):: Qb33,eps33,T33
 
-      integer:: ifstress(ntens), maxiter, ninc,kiter, ikeyword,
-     &          iRepetition, nRepetitions, kStep,iStep,nSteps,ntens_in
+      integer:: ifstress(ntens), maxiter, ninc,kiter, ikeyword, &
+               iRepetition, nRepetitions, kStep,iStep,nSteps,ntens_in
 
-      real(8):: r_stress(ntens),a_dstress(ntens),u_dstress(ntens),
-     &         stress_Rosc(ntens),r_stress_Rosc(ntens),
-     &      ddstress(ntens), c_dstran(ntens) ,
-     &      deltaLoadCirc(6),phase0(6),deltaLoad(9),
-     &      dstran_Cart(6), ddsdde_bar(6,6), deltaTime
-      real(8),parameter :: sq3=1.7320508075688772935d0,
-     &                     sq6=2.4494897427831780982d0,
-     &                     sq2=1.4142135623730950488d0,
-     &                     Pi =3.1415926535897932385d0
-      real(8),parameter ::
-     &                     i3=0.3333333333333333333d0,
-     &                     i2=0.5d0,
-     &                     isq2=1/sq2,
-     &                     isq3=1.0d0/sq3,
-     &                     isq6=1.0d0/sq6
+      real(8):: r_stress(ntens),a_dstress(ntens),u_dstress(ntens), &
+              stress_Rosc(ntens),r_stress_Rosc(ntens), &
+           ddstress(ntens), c_dstran(ntens) , &
+           deltaLoadCirc(6),phase0(6),deltaLoad(9), &
+           dstran_Cart(6), ddsdde_bar(6,6), deltaTime
+      real(8),parameter :: sq3=1.7320508075688772935d0, &
+                          sq6=2.4494897427831780982d0, &
+                          sq2=1.4142135623730950488d0, &
+                          Pi =3.1415926535897932385d0
+      real(8),parameter :: &
+                          i3=0.3333333333333333333d0, &
+                          i2=0.5d0, &
+                          isq2=1/sq2, &
+                          isq3=1.0d0/sq3, &
+                          isq6=1.0d0/sq6
 
-      real(8), parameter,dimension(1:6,1:6)::MRoscI=reshape             !  M for isomorphic Roscoe variables P,Q,Z,....
-     &  ((/-isq3,-2.0d0*isq6,0.0d0,  0.0d0, 0.0d0, 0.0d0,
-     &     -isq3, isq6,      -isq2,  0.0d0, 0.0d0, 0.0d0,
-     &     -isq3, isq6,       isq2,  0.0d0, 0.0d0, 0.0d0,
-     &      0.0d0, 0.0d0,     0.0d0, 1.0d0, 0.0d0, 0.0d0,
-     &      0.0d0, 0.0d0,     0.0d0, 0.0d0, 1.0d0, 0.0d0,
-     &      0.0d0, 0.0d0,     0.0d0, 0.0d0, 0.0d0, 1.0d0
-     &  /),(/6,6/))
+      real(8), parameter,dimension(1:6,1:6)::MRoscI=reshape &            !  M for isomorphic Roscoe variables P,Q,Z,....
+       ((/-isq3,-2.0d0*isq6,0.0d0,  0.0d0, 0.0d0, 0.0d0, &
+          -isq3, isq6,      -isq2,  0.0d0, 0.0d0, 0.0d0, &
+          -isq3, isq6,       isq2,  0.0d0, 0.0d0, 0.0d0, &
+           0.0d0, 0.0d0,     0.0d0, 1.0d0, 0.0d0, 0.0d0, &
+           0.0d0, 0.0d0,     0.0d0, 0.0d0, 1.0d0, 0.0d0, &
+           0.0d0, 0.0d0,     0.0d0, 0.0d0, 0.0d0, 1.0d0 &
+       /),(/6,6/))
 
       real(8), parameter,dimension(1:6,1:6)::MRoscImT=MRoscI            !  latest $\cM^{-T}$ (is orthogonal)
 
-       real(8), parameter,dimension(1:6,1:6)::MRendul=reshape              !  M for isomorphic Rendulic sigma_11 = -T_11,  sigma_22 = -(T_22 + T_33) / sqrt(2)  Z, ....
-     &  ((/ -1.0d0, 0.0d0,  0.0d0,  0.0d0,0.0d0,0.0d0,
-     &      0.0d0, -isq2,  -isq2,  0.0d0,0.0d0,0.0d0,
-     &      0.0d0, -isq2,   isq2,  0.0d0,0.0d0,0.0d0,
-     &      0.0d0,  0.0d0, 0.0d0,  1.0d0,0.0d0,0.0d0,
-     &      0.0d0,  0.0d0, 0.0d0,  0.0d0,1.0d0,0.0d0,
-     &      0.0d0,  0.0d0, 0.0d0,  0.0d0,0.0d0,1.0d0
-     &  /),(/6,6/))
+       real(8), parameter,dimension(1:6,1:6)::MRendul=reshape &              !  M for isomorphic Rendulic sigma_11 = -T_11,  sigma_22 = -(T_22 + T_33) / sqrt(2)  Z, ....
+       ((/ -1.0d0, 0.0d0,  0.0d0,  0.0d0,0.0d0,0.0d0, &
+           0.0d0, -isq2,  -isq2,  0.0d0,0.0d0,0.0d0, &
+          0.0d0, -isq2,   isq2,  0.0d0,0.0d0,0.0d0, &
+          0.0d0,  0.0d0, 0.0d0,  1.0d0,0.0d0,0.0d0, &
+           0.0d0,  0.0d0, 0.0d0,  0.0d0,1.0d0,0.0d0, &
+           0.0d0,  0.0d0, 0.0d0,  0.0d0,0.0d0,1.0d0 &
+       /),(/6,6/))
 
       real(8), parameter,dimension(1:6,1:6)::MRendulmT=MRendul          !  latest  $\cM^{-T}$   (is orthogonal)
 
-      real(8), parameter,dimension(1:6,1:6)::MRosc=reshape              !  M for Roscoe variables p,q,z,....
-     &  ((/-i3,-1.0d0, 0.0d0,    0.0d0,0.0d0,0.0d0,
-     &     -i3, i2, -1.0d0,      0.0d0,0.0d0,0.0d0,
-     &      -i3,i2, 1.0d0,       0.0d0,0.0d0,0.0d0,
-     &      0.0d0, 0.0d0,0.0d0,  1.0d0,0.0d0,0.0d0,
-     &      0.0d0, 0.0d0, 0.0d0, 0.0d0,1.0d0,0.0d0,
-     &      0.0d0, 0.0d0, 0.0d0, 0.0d0,0.0d0,1.0d0
-     &  /),(/6,6/))
-      real(8), parameter,dimension(1:6,1:6)::MRoscmT=reshape            !  latest  $\cM^{-T}$   (is not orthogonal)
-     & ((/-1.0d0, -2.0d0*i3, 0.0d0,  0.0d0, 0.0d0,0.0d0,
-     &    -1.0d0,   i3,      -i2,    0.0d0,0.0d0,0.0d0,
-     &    -1.0d0,   i3,       i2,    0.0d0,0.0d0,0.0d0,
-     &    0.0d0, 0.0d0, 0.0d0, 1.0d0, 0.0d0, 0.0d0,
-     &    0.0d0, 0.0d0, 0.0d0, 0.0d0, 1.0d0, 0.0d0,
-     &    0.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0, 1.0d0
-     &  /),(/6,6/))
+      real(8), parameter,dimension(1:6,1:6)::MRosc=reshape &              !  M for Roscoe variables p,q,z,....
+       ((/-i3,-1.0d0, 0.0d0,    0.0d0,0.0d0,0.0d0, &
+          -i3, i2, -1.0d0,      0.0d0,0.0d0,0.0d0, &
+           -i3,i2, 1.0d0,       0.0d0,0.0d0,0.0d0, &
+           0.0d0, 0.0d0,0.0d0,  1.0d0,0.0d0,0.0d0, &
+           0.0d0, 0.0d0, 0.0d0, 0.0d0,1.0d0,0.0d0, &
+           0.0d0, 0.0d0, 0.0d0, 0.0d0,0.0d0,1.0d0 &
+       /),(/6,6/))
+      real(8), parameter,dimension(1:6,1:6)::MRoscmT=reshape  &          !  latest  $\cM^{-T}$   (is not orthogonal)
+      ((/-1.0d0, -2.0d0*i3, 0.0d0,  0.0d0, 0.0d0,0.0d0, &
+         -1.0d0,   i3,      -i2,    0.0d0,0.0d0,0.0d0, &
+         -1.0d0,   i3,       i2,    0.0d0,0.0d0,0.0d0, &
+         0.0d0, 0.0d0, 0.0d0, 1.0d0, 0.0d0, 0.0d0, &
+         0.0d0, 0.0d0, 0.0d0, 0.0d0, 1.0d0, 0.0d0, &
+         0.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0, 1.0d0 &
+       /),(/6,6/))
 
-      real(8), parameter,dimension(1:6,1:6)::MCart=reshape              !  M for Cartesian coords $T_11, T_22, T_33, T_12,.....$
-     & ((/ 1.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0,
-     &    0.0d0, 1.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0,
-     &    0.0d0, 0.0d0, 1.0d0, 0.0d0, 0.0d0, 0.0d0,
-     &    0.0d0, 0.0d0, 0.0d0, 1.0d0, 0.0d0, 0.0d0,
-     &    0.0d0, 0.0d0, 0.0d0, 0.0d0, 1.0d0, 0.0d0,
-     &    0.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0, 1.0d0
-     &  /),(/6,6/))
+      real(8), parameter,dimension(1:6,1:6)::MCart=reshape  &            !  M for Cartesian coords $T_11, T_22, T_33, T_12,.....$
+      ((/ 1.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0, &
+         0.0d0, 1.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0, &
+        0.0d0, 0.0d0, 1.0d0, 0.0d0, 0.0d0, 0.0d0, &
+        0.0d0, 0.0d0, 0.0d0, 1.0d0, 0.0d0, 0.0d0, &
+        0.0d0, 0.0d0, 0.0d0, 0.0d0, 1.0d0, 0.0d0, &
+        0.0d0, 0.0d0, 0.0d0, 0.0d0, 0.0d0, 1.0d0 &
+      /),(/6,6/))
       real(8), parameter,dimension(1:6,1:6)::MCartmT=MCart              !  latest  $\cM^{-T}$  (is orthogonal)
 
 
@@ -146,8 +148,8 @@
 
       type descriptionOfStep
         integer:: ninc,maxiter, ifstress(ntens),columnsInFile(7),mImport ! AN 2016
-        real(8) :: deltaLoadCirc(ntens),phase0(ntens),deltaLoad(9),
-     &             dfgrd0(3,3), dfgrd1(3,3),deltaTime, importFactor(7)
+        real(8) :: deltaLoadCirc(ntens),phase0(ntens),deltaLoad(9), &
+                  dfgrd0(3,3), dfgrd1(3,3),deltaTime, importFactor(7)
         character(40) :: keyword2, keyword3, exitCond,ImportFileName    ! AN 2016
         real(8),dimension(1:6,1:6) :: cMt, cMe
         real(8),dimension(1:6) :: mbinc
@@ -250,14 +252,14 @@
         write(stressHead(i), '(a,i1,a)' )  'stress(',i, ')'
        enddo
        do i=1,nstatv
-       write(statevHead(i), '(a,i3,a)' )  '  statev(',i, ')'
+       write(statevHead(i), '(a,i1,a)' )  'statev(',i, ')' !Modify this for changing header names!!!!
        enddo
        write(2,'(a14,500a20)') timeHead,stranHead,stressHead,statevHead
 
 
       if(heading(1:1) /= '#') write(2,*) trim(heading)
-       write(2,'(500(g17.11,3h    ))') time+(/dtime,dtime/),
-     &                                stran, stress, statev
+       write(2,'(500(g17.11,3h    ))') time+(/dtime,dtime/), &
+                                     stran, stress, statev
 ![4.2]  loop over keywords(1) unless keyword(1) = *Repetition  it is copied to keyword(2) which is the true type of loading
       kStep = 0  ! kStep = counter over all steps whereas  iStep = counter over steps within a *Repetition
       do 200 ikeyword=1,10000
@@ -345,8 +347,8 @@
        keyword2 = keywords(2)
        if(keyword2(1:11) == '*ImportFile') then
            keywords(2) = '*ImportFile'; keyword2 = keyword2(12:)
-           call splitaLine( keyword2,'|',ImportFileName,
-     &                      mString,okSplit)
+           call splitaLine( keyword2,'|',ImportFileName, &
+                           mString,okSplit)
         if(.not.okSplit)    stop 'missing | in line *ImportFile'
            read(mString,*) mImport
            call ReadStepCommons(1, ninc, maxiter,deltaTime, every)    ! AN 2016  read(1,*) ninc, maxiter, deltaTime
@@ -456,9 +458,9 @@
           call ReadStepCommons(1, ninc, maxiter,deltaTime, every)       ! AN 2016     read(1,*) ninc, maxiter, deltaTime
           read(1,*) keywords(3)  ! = *Rendulic  or *RoscoeIsomorph
            keywords(3) = trim( keywords(3) )
-          if(keywords(3) .ne. '*Rendulic' .and.
-     &       keywords(3) .ne. '*RoscoeIsomorph')
-     &       write(*,*) 'warning: non-Isomorphic perturburbation'
+          if(keywords(3) .ne. '*Rendulic' .and. &
+            keywords(3) .ne. '*RoscoeIsomorph') &
+           write(*,*) 'warning: non-Isomorphic perturburbation'
           read(1,*)  deltaLoad(1)
           ifstress(1:6) =  1
           goto 10
@@ -467,12 +469,30 @@
           call ReadStepCommons(1, ninc, maxiter,deltaTime, every)    ! AN 2016      read(1,*) ninc, maxiter, deltaTime
           read(1,*) keywords(3)
           keywords(3) = trim( keywords(3) )
-          if(keywords(3) .ne. '*Rendulic' .and.
-     &       keywords(3) .ne. '*RoscoeIsomorph')
-     &       write(*,*) 'warning: Anisomorphic perturburbation'
+          if(keywords(3) .ne. '*Rendulic' .and. &
+            keywords(3) .ne. '*RoscoeIsomorph') &
+           write(*,*) 'warning: Anisomorphic perturburbation'
           read(1,*) deltaLoad(1)
           goto 10
-       endif
+	   endif
+	   if(keywords(2)=='*ImpactTriaxialE1') then !LEZC 2020 a variable strain rate file is needed
+		   read(1,*) ImportFileName	
+		   keywords(2) = '*StrainRate'
+           keywords(3) ='*Cartesian'
+		   call ReadStepCommons(1, ninc, maxiter,deltaTime, every)
+		   ifstress(2:3) = 1
+		   Open(unit=1, file=ImportFileName, action='read', status='old') !Open file for reading data
+		   Read(1,*) nImport
+		   allocate(StrainInc(nImport, 2))
+		   do i= 1, nImport !read data
+			   Read(1,*) StrainInc(i,1), StrainInc(i,2)
+		   enddo	
+		   deltaTime=StrainInc(nImport,1)
+		   allocate(InterpolatedStrainInc(ninc))
+		   call InterpolsteStrains(ninc,nImport, StrainInc, deltaTime, InterpolatedStrainInc)	
+		   deallocate(StrainInc)
+		   goto 10
+	   endif	   
        if(keywords(2) == '*End') stop '*End encountered in test.inp'
        write(*,*) 'error: unknown keywords(2)=',keywords(2)
        stop 'stopped by unknown keyword(2) in test.inp'
@@ -503,8 +523,8 @@
        endif
 
       if(any(ifstress==1)) maxiter = max(maxiter,5)                    ! at least 5 iterations
-      if(all(ifstress==0) .and. keywords(2) .ne. '*ObeyRestrictions')
-     &                                                     maxiter = 1  ! no iterations are necessary
+      if(all(ifstress==0) .and. keywords(2) .ne. '*ObeyRestrictions') &
+                                                         maxiter = 1  ! no iterations are necessary
 
 !     start the current step with zero-load call of umat() just to get the stiffness
         dstran(:)=0
@@ -512,11 +532,11 @@
         dtemp=0
         kinc=0
 	r_statev(:)=statev(:);  r_stress(:)=stress(:)     ! AN 21.06.2017 remember the initial state and stress
-      call  UMAT(stress,statev,ddsdde,sse,spd,scd,      !=== first call umat with dstrain=0 dtime=0 just for stiffness (=jacobian ddsdde)
-     &    rpl,ddsddt,drplde,drpldt,
-     &    stran,dstran,time,dtime,temp,dtemp,predef,dpred,cmname,
-     &    ndi,nshr,ntens,nstatv,props,nprops,coords,drot,pnewdt,
-     &    celent,dfgrd0,dfgrd1,noel,npt,layer,kspt,0,kinc)   !=== some constitutive models require kStep=0 other do not
+      call  UMAT(stress,statev,ddsdde,sse,spd,scd,  &    !=== first call umat with dstrain=0 dtime=0 just for stiffness (=jacobian ddsdde)
+         rpl,ddsddt,drplde,drpldt, &
+         stran,dstran,time,dtime,temp,dtemp,predef,dpred,cmname, &
+         ndi,nshr,ntens,nstatv,props,nprops,coords,drot,pnewdt, &
+        celent,dfgrd0,dfgrd1,noel,npt,layer,kspt,0,kinc)   !=== some constitutive models require kStep=0 other do not
        statev(:)=r_statev(:);  stress(:)=r_stress(:)   !  AN 21.06.2017 recover stress and state  although the ZERO call of umat should not modify them
 
 
@@ -561,22 +581,27 @@
           dState = newState(:) -  oldState(:)                             ! AN 2016
           do i=1,6                                                        ! AN 2016
           if  (columnsInFile(i) == 0) cycle                               ! AN 2016
-          if (ifstress(i)==1  )  ddstress(i)= dState(columnsInFile(i))*
-     &                                                ImportFactor(i)    ! AN 2016
-          if (ifstress(i)==0)    dstran(i)  = dState(columnsInFile(i))*
-     &                                               ImportFactor(i)      ! AN 2016
-          enddo                                                            ! AN 2016
-           if(columnsInFile(7)/= 0) deltaTime= dState(columnsInFile(7))*
-     &                                                  ImportFactor(i)   ! AN 2016
+          if (ifstress(i)==1  )  ddstress(i)= dState(columnsInFile(i))* &
+                                                     ImportFactor(i)    ! AN 2016
+          if (ifstress(i)==0)    dstran(i)  = dState(columnsInFile(i))*&                                               ImportFactor(i)      ! AN 2016
+          enddo                                                             ! AN 2016
+           if(columnsInFile(7)/= 0) deltaTime= dState(columnsInFile(7))* &
+                                                       ImportFactor(i)   ! AN 2016
            dtime = deltaTime                                             ! AN 2016
            oldState(:) = newState(:)                                    ! AN 2016
         endif                                                             ! AN 2016
 
         if(keywords(2) /= '*ImportFile') then                            ! AN 2016
-        call get_increment(keywords, time, deltaTime, ifstress, ninc,   ! get inc. in terms of Rosc. variables
-     &                         deltaLoadCirc,phase0,deltaLoad,
-     &                         dtime, ddstress,  dstran, Qb33,
-     &                         dfgrd0, dfgrd1,drot )
+        call get_increment(keywords, time, deltaTime, ifstress, ninc, &   ! get inc. in terms of Rosc. variables
+                             deltaLoadCirc,phase0,deltaLoad, &
+                             dtime, ddstress,  dstran, Qb33, &
+                              dfgrd0, dfgrd1,drot )
+			if (keywords(1)=='*ImpactTriaxialE1') then
+				do i=1,6
+					if (dstran(i)==1.0d0) dstran(i)=InterpolatedStrainInc(kinc)
+				enddo
+				dstran(3:6)=0.0d0
+			endif			
         endif
 
 
@@ -593,11 +618,11 @@
           call  USOLVER(ddsdde_bar,c_dstran,u_dstress,ifstress,ntens)
           dstran = dstran + c_dstran
 
-          call  UMAT(stress,statev,ddsdde,sse,spd,scd,
-     &       rpl,ddsddt,drplde,drpldt,
-     &       stran,dstran,time,dtime,temp,dtemp,predef,dpred,cmname,
-     &       ndi,nshr,ntens,nstatv,props,nprops,coords,drot,pnewdt,
-     &       celent,dfgrd0,dfgrd1,noel,npt,layer,kspt,kStep,kinc)
+          call  UMAT(stress,statev,ddsdde,sse,spd,scd, &
+            rpl,ddsddt,drplde,drpldt, &
+            stran,dstran,time,dtime,temp,dtemp,predef,dpred,cmname, &
+            ndi,nshr,ntens,nstatv,props,nprops,coords,drot,pnewdt, &
+            celent,dfgrd0,dfgrd1,noel,npt,layer,kspt,kStep,kinc)
 
           if(kiter.lt.maxiter) then                                      ! continue iteration
              statev(:)=r_statev(:)                                       ! 1) undo the update of state (done by umat)
@@ -610,17 +635,18 @@
 
        if(keywords(2) /= '*ObeyRestrictions'  ) then   ! ======================= disObeyRestrictions ==========
          u_dstress = 0.0d0
+		 c_dstran= 0.0d0
          where (ifstress == 1)  u_dstress =ddstress -a_dstress           ! undesired Roscoe stress
          ddsdde_bar = matmul(matmul(M,ddsdde),transpose(M))              ! Roscoe-Roscoe stiffness
 
          call  USOLVER(ddsdde_bar,c_dstran,u_dstress,ifstress,ntens)     ! get Rosc. correction  c\_dstran() caused by undesired Rosc. dstress
          where (ifstress == 1) dstran = dstran + c_dstran                ! corrected Rosc. dstran where stress-controlled
          dstran_Cart = matmul( transpose(M),dstran )                     ! transsform Rosc. to Cartesian dstran
-         call  UMAT(stress,statev,ddsdde,sse,spd,scd,
-     &   rpl,ddsddt,drplde,drpldt,
-     &   stran,dstran_Cart,time,dtime,temp,dtemp,predef,dpred,cmname,
-     &   ndi,nshr,ntens,nstatv,props,nprops,coords,drot,pnewdt,
-     &   celent,dfgrd0,dfgrd1,noel,npt,layer,kspt,kStep,kinc)
+         call  UMAT(stress,statev,ddsdde,sse,spd,scd, &
+        rpl,ddsddt,drplde,drpldt, &
+        stran,dstran_Cart,time,dtime,temp,dtemp,predef,dpred,cmname, &
+        ndi,nshr,ntens,nstatv,props,nprops,coords,drot,pnewdt, &
+        celent,dfgrd0,dfgrd1,noel,npt,layer,kspt,kStep,kinc)
 
         if (kiter.lt.maxiter) then                                      ! continue iteration
            statev(:)=r_statev(:)                                        ! 1) forget the changes of state done in umat
@@ -635,19 +661,19 @@
 
 94    continue
       if((kiter==maxiter) .and. mod(kinc,10)==0 .and. verbose ) then    ! write to screen
-      write(*,'(12H ikeyword = ,i3, 8H kstep = ,i3,7H kinc = ,i5,
-     &          9H kiter = ,i2)')  ikeyword, kStep, kinc, kiter
+      write(*,'(12H ikeyword = ,i3, 8H kstep = ,i3,7H kinc = ,i5, &
+               9H kiter = ,i2)')  ikeyword, kStep, kinc, kiter
       endif
 
  95   continue !--------------------end of Equilibrium Iteration
 
       aux1 =  dot_product(a_dstress,a_dstress)
       aux2 =  dot_product(u_dstress,u_dstress)
-      if((aux1>1.d-10 .and. aux2/aux1 > 1.0d-2) .or.
-     &    (aux1<1.d-10 .and. aux2 > 1.0d-12)  ) then
-       write(*,*)
-     &  'I cannot apply the prescribed stress components,'//
-     & '||u_dstress|| too large.'                 ! check  the Rosc.stress error < toler
+      if((aux1>1.d-10 .and. aux2/aux1 > 1.0d-2) .or. &
+         (aux1<1.d-10 .and. aux2 > 1.0d-12)  ) then
+       write(*,*) &
+       'I cannot apply the prescribed stress components,'// &
+      '||u_dstress|| too large.'                 ! check  the Rosc.stress error < toler
       endif
 
       if(keywords(2) =='*DeformationGradient' ) then                    !  rigid rotation of stress
@@ -664,11 +690,11 @@
       where(abs(stress) < 1.0d-99) stress = 0.0d0
       where(abs(statev) < 1.0d-99) statev = 0.0d0
       if(ievery==1) then
-      write(2,'(500(g17.11,3h    ))') time+(/dtime,dtime/),
-     &                                stran, stress, statev
+      write(2,'(500(g17.11,3h    ))') time+(/dtime,dtime/), &
+                                     stran, stress, statev
       endif
-      if(keywords(2) =='*PerturbationsS' .or.
-     &   keywords(2) =='*PerturbationsE' ) then ! having plotted everything undo the increment
+      if(keywords(2) =='*PerturbationsS' .or. &
+        keywords(2) =='*PerturbationsE' ) then ! having plotted everything undo the increment
        stran(:)=stran(:) - dstran_Cart(:)
        statev(:)=r_statev(:)
        stress(:)=r_stress(:)
@@ -692,6 +718,7 @@
  !***********************************************
 
   100 continue  ! next kinc
+	  if (keywords(1)=='*ImpactTriaxialE1') deallocate(InterpolatedStrainInc)
   120 continue  ! next iStep
   130 continue  ! next iRepetition
   200 continue  ! next keyword
@@ -780,8 +807,8 @@
         real(8), intent(in), dimension(:) :: a
         real(8),dimension(1:6) :: b = 0
         b(1:ntens) = a(1:ntens)
-        map2D = reshape( [b(1), b(4)/2, b(5)/2,
-     &          b(4)/2,b(2),b(6)/2, b(5)/2,b(6)/2, b(3)],[3,3] )
+        map2D = reshape( [b(1), b(4)/2, b(5)/2, &
+               b(4)/2,b(2),b(6)/2, b(5)/2,b(6)/2, b(3)],[3,3] )
       end function map2D
 
       !>  contained in program that_calls_umat converts tensor T(3,3)  to matrix stress(ntens)
@@ -803,8 +830,8 @@
         real(8), intent(in), dimension(:) :: a
         real(8), dimension(1:6) :: b= 0
         b(1:ntens) = a(1:ntens)
-        map2T = reshape( [b(1),b(4),b(5),
-     &        b(4),b(2),b(6),  b(5),b(6),b(3) ],[3,3] )
+        map2T = reshape( [b(1),b(4),b(5), &
+            b(4),b(2),b(6),  b(5),b(6),b(3) ],[3,3] )
       end function map2T
 
       !>  contained in program that_calls_umat  reads a file with instructions for stress alignment
@@ -820,8 +847,8 @@
        open(22, file=reversalFileName,status ='old', err=555 )
         align%active=.True.
         align%reversal(:) = 0
-        read(22,*,err=556)  align%kblank,align%nrec,align%kReversal,
-     &                      align%ncol
+        read(22,*,err=556)  align%kblank,align%nrec,align%kReversal, &
+                           align%ncol
         read(22,*,err=557)  align%reversal(1:align%kReversal)
         read(22,*,err=558)  align%isig(1:6)
         read(22,*,err=559)  align%sigFac(1:6)
@@ -835,8 +862,8 @@
       end subroutine  readAlignment
 
 !>  contained in program that_calls_umat tries to align stress to values from aState(1:mImport)
-       subroutine  tryAlignStress
-     &             (align, kinc, aState, mImport,stress,ntens)
+       subroutine  tryAlignStress &
+                  (align, kinc, aState, mImport,stress,ntens)
        implicit none
        integer:: mImport,kinc,ntens,ie
        real(8) :: aState(mImport)
@@ -847,8 +874,8 @@
        if(.not. any(align%Reversal == kinc)) return
 
        ! only  stress components for which isig(ie) /= 0 will be aligned
-       forall(ie=1:ntens, align%isig(ie) /= 0)
-     &      stress(ie)= aState( align%isig(ie))*align%sigFac(ie)
+       forall(ie=1:ntens, align%isig(ie) /= 0) &
+           stress(ie)= aState( align%isig(ie))*align%sigFac(ie)
        return
       end subroutine  tryAlignStress
 
@@ -859,27 +886,27 @@
 ! ==========================================================================
 !>    basing on an input command with parameters converts  deltaLoad or deltaLoadCirc
 !>    to the canonical three lists:  dstress(), dstrain(), ifstress()
-      subroutine get_increment(keywords, time, deltaTime,ifstress,ninc,
-     &                         deltaLoadCirc,phase0,deltaLoad,
-     &                         dtime, ddstress,  dstran , Qb33,
-     &                         dfgrd0, dfgrd1,drot )
+      subroutine get_increment(keywords, time, deltaTime,ifstress,ninc, &
+                              deltaLoadCirc,phase0,deltaLoad, &
+                              dtime, ddstress,  dstran , Qb33, &
+                              dfgrd0, dfgrd1,drot )
       implicit none
       character(40):: keywords(10)
       integer, intent(in)  :: ifstress(6),ninc
-      real(8), intent(in) :: time(2), deltaTime,
-     &                       deltaLoadCirc(6),phase0(6),
-     &                       deltaLoad(9)
+      real(8), intent(in) :: time(2), deltaTime, &
+                            deltaLoadCirc(6),phase0(6), &
+                            deltaLoad(9)
       real(8), intent(out) ::  dtime, ddstress(6), dstran(6), Qb33(3,3)
       real(8), intent(in out) ::  dfgrd0(3,3), dfgrd1(3,3), drot(3,3)
 
 
       real(8), parameter :: Pi = 3.1415926535897932385d0
-      real(8),parameter,dimension(3,3):: delta =
-     &                          reshape((/1,0,0,0,1,0,0,0,1/),(/3,3/))
+      real(8),parameter,dimension(3,3):: delta = &
+                               reshape((/1,0,0,0,1,0,0,0,1/),(/3,3/))
       real(8),dimension(3,3):: Fb,Fbb, dFb,aux33,dLb,depsb,dOmegab
-      real(8):: wd(6),  ! angular velocity (in future individual for each component)
-     &          w0(6),  ! initial phase shift for a component
-     &          t       ! step time
+      real(8):: wd(6), &  ! angular velocity (in future individual for each component)
+               w0(6), &  ! initial phase shift for a component
+               t       ! step time
       integer(4) :: i
       logical :: ok
 
@@ -890,7 +917,14 @@
       drot = delta
       dfgrd0=delta
       dfgrd1=delta
-
+	  
+	  !------------------------------------------------------
+	  if(keywords(2) == '*StrainRate') then  
+		do i=1,6
+        if (ifstress(i)==1)   ddstress(i) = deltaLoad(i)/ ninc
+        if (ifstress(i)==0)    dstran(i) = 1.0d0              ! To be assigned later LEZC 2020
+       enddo
+	  endif
       !------------------------------------------------------
       if(keywords(2) == '*LinearLoad') then                               !  proportional loading
        do i=1,6
@@ -903,10 +937,10 @@
       endif
       !--------------------------------------------------
       if(keywords(2) == '*DeformationGradient') then                     ! full deformation gradient.
-      Fb = reshape((/deltaLoad(1), deltaLoad(5), deltaLoad(7),           ! finite rotations calculated after Hughes+Winget 1980
-     &               deltaLoad(4), deltaLoad(2), deltaLoad(9),
-     &               deltaLoad(6), deltaLoad(8), deltaLoad(3)
-     &  /) ,  (/3,3/))
+      Fb = reshape((/deltaLoad(1), deltaLoad(5), deltaLoad(7), &          ! finite rotations calculated after Hughes+Winget 1980
+                    deltaLoad(4), deltaLoad(2), deltaLoad(9), &
+                    deltaLoad(6), deltaLoad(8), deltaLoad(3) &
+       /) ,  (/3,3/))
       Fbb = delta + (Fb-delta)*(time(1)/deltaTime)
       dfgrd0  = Fbb
       dFb = (Fb-delta)/ninc
@@ -917,8 +951,8 @@
       aux33 = inv33(aux33)
       dLb =  matmul(dFb,aux33)
       depsb = 0.5d0*(dLb + transpose(dLb))
-      dstran=(/depsb(1,1), depsb(2,2),depsb(3,3),
-     &         2.0d0*depsb(1,2),2.0d0*depsb(1,3),2.0d0*depsb(2,3)/)
+      dstran=(/depsb(1,1), depsb(2,2),depsb(3,3), &
+              2.0d0*depsb(1,2),2.0d0*depsb(1,3),2.0d0*depsb(2,3)/)
       dOmegab =    0.5d0*(dLb - transpose(dLb))
       aux33 =  delta - 0.5d0*dOmegab
  !     call matrix('inverse', aux33, 3, ok )
@@ -932,12 +966,12 @@
       w0 = phase0
       t= time(1)  + dtime/2   ! step time in the middle of the increment
       do i=1,6
-      if(ifstress(i)==1)
-     &  ddstress(i)=dtime*deltaLoadCirc(i)*wd(i)*Cos(wd(i)*t+w0(i))+
-     &              deltaLoad(i)/ ninc
-      if(ifstress(i)==0)dstran(i)=
-     &               dtime*deltaLoadCirc(i)*wd(i)*Cos(wd(i)*t+w0(i))+
-     &               deltaLoad(i)/ ninc
+      if(ifstress(i)==1) &
+       ddstress(i)=dtime*deltaLoadCirc(i)*wd(i)*Cos(wd(i)*t+w0(i))+ &
+                   deltaLoad(i)/ ninc
+      if(ifstress(i)==0)dstran(i)= &
+                    dtime*deltaLoadCirc(i)*wd(i)*Cos(wd(i)*t+w0(i))+ &
+                    deltaLoad(i)/ ninc
       enddo
        ! here dfgrd0 and dfgrd1   can be defined from stran assuming polar decomposition F=V.R with R=1  and V = exp(stran)
        ! for dfgrd0 use stran
@@ -973,15 +1007,15 @@
       real(8), dimension(3,3) :: b
       real(8), dimension(3,3) :: inv33
       real(8) :: det
-      det = - a(1,3)*a(2,2)*a(3,1) + a(1,2)*a(2,3)*a(3,1) +
-     &          a(1,3)*a(2,1)*a(3,2) - a(1,1)*a(2,3)*a(3,2) -
-     &          a(1,2)*a(2,1)*a(3,3) + a(1,1)*a(2,2)*a(3,3)
-      b= reshape(
-     &    [-a(2,3)*a(3,2)+ a(2,2)*a(3,3), a(1,3)*a(3,2)-a(1,2)*a(3,3),
-     &   -a(1,3)*a(2,2) + a(1,2)*a(2,3),  a(2,3)*a(3,1)- a(2,1)*a(3,3),
-     &   -a(1,3)*a(3,1) + a(1,1)*a(3,3),  a(1,3)*a(2,1)- a(1,1)*a(2,3),
-     &   -a(2,2)*a(3,1)  + a(2,1)*a(3,2), a(1,2)*a(3,1)- a(1,1)*a(3,2),
-     &  -a(1,2)*a(2,1) + a(1,1)*a(2,2)]    ,[3,3]    )
+      det = - a(1,3)*a(2,2)*a(3,1) + a(1,2)*a(2,3)*a(3,1) + &
+               a(1,3)*a(2,1)*a(3,2) - a(1,1)*a(2,3)*a(3,2) - &
+               a(1,2)*a(2,1)*a(3,3) + a(1,1)*a(2,2)*a(3,3)
+      b= reshape( &
+         [-a(2,3)*a(3,2)+ a(2,2)*a(3,3), a(1,3)*a(3,2)-a(1,2)*a(3,3), &
+        -a(1,3)*a(2,2) + a(1,2)*a(2,3),  a(2,3)*a(3,1)- a(2,1)*a(3,3), &
+        -a(1,3)*a(3,1) + a(1,1)*a(3,3),  a(1,3)*a(2,1)- a(1,1)*a(2,3), &
+        -a(2,2)*a(3,1)  + a(2,1)*a(3,2), a(1,2)*a(3,1)- a(1,1)*a(3,2), &
+       -a(1,2)*a(2,1) + a(1,1)*a(2,2)]    ,[3,3]    )
       inv33 = transpose(b)/det
       end function inv33
 
@@ -1002,10 +1036,10 @@
       ntens = ndi+nshr
       a(:) = 0
       a(1:ntens) = S(:)
-      if(LSTR==1) b = reshape( [a(1),a(4),a(5),a(4),a(2),a(6),
-     &                            a(5),a(6),a(3)], [3,3] )
-      if(LSTR==0) b = reshape([a(1),a(4)/2,a(5)/2,a(4)/2,a(2),a(6)/2,
-     &                   a(5)/2, a(6)/2, a(3) ],[3,3] )
+      if(LSTR==1) b = reshape( [a(1),a(4),a(5),a(4),a(2),a(6), &
+                                 a(5),a(6),a(3)], [3,3] )
+      if(LSTR==0) b = reshape([a(1),a(4)/2,a(5)/2,a(4)/2,a(2),a(6)/2, &
+                        a(5)/2, a(6)/2, a(3) ],[3,3] )
       b = matmul( matmul(R,b),transpose(R))
       if(LSTR==1) a = [b(1,1),b(2,2),b(3,3),b(1,2),b(1,3),b(2,3)]
       if(LSTR==0) a = [b(1,1),b(2,2),b(3,3),2*b(1,2),2*b(1,3),2*b(2,3)]
@@ -1233,8 +1267,8 @@
        integer:: i,igt, ilt,iis,imin,iplus,iminus,Nsummands,itimes
        character(len=40) :: inp, rhs, summand(mSummands), aux
        real(8):: factor(mSummands),fac,x,y
-       real(8), parameter :: sq3 = 1.7320508075689d0,
-     &                       sq23 = 0.81649658092773d0
+       real(8), parameter :: sq3 = 1.7320508075689d0, &
+                            sq23 = 0.81649658092773d0
 
 
        exitnow = .False.
@@ -1328,8 +1362,8 @@
 
       character(len=260) ::  inp, aux,aux3
       character(40) ::  summand(13)
-      integer :: iis,i,iplus,iminus,iequal,imin,iex,itimes,Irestr,ihash,
-     &           Nsummands
+      integer :: iis,i,iplus,iminus,iequal,imin,iex,itimes,Irestr,ihash, &
+                Nsummands
       real(8) :: factor(13),fac
 
 
@@ -1501,8 +1535,8 @@
       indx(j)=imax
       if (a(j,j) == 0.0) a(j,j)=TINY
       a(j+1:n,j)=a(j+1:n,j)/a(j,j)
-      a(j+1:n,j+1:n)=a(j+1:n,j+1:n)- spread(a(j+1:n,j),2,n-j )*
-     &                spread(a(j,j+1:n),1, n-j)   ! outerprod
+      a(j+1:n,j+1:n)=a(j+1:n,j+1:n)- spread(a(j+1:n,j),2,n-j )* &
+                     spread(a(j,j+1:n),1, n-j)   ! outerprod
       end do
       END SUBROUTINE ludcmp
 
@@ -1576,7 +1610,38 @@
       stop  'whyStopText'                                   ! AN 2016
        WRITE(ERROR_UNIT,*)   whyStopText                  ! AN 2016
       CALL EXIT(5)                                       ! AN 2016
-      end subroutine stopp                             ! AN 2016
+	end subroutine stopp                             ! AN 2016
+	
+	subroutine InterpolsteStrains(nInc, nImport, StrainInc, DeltaT, InterpolatedStrainInc)
+	!Input data
+	implicit none
+	integer, intent(in):: nImport, nInc
+	real(8), intent(in):: DeltaT
+	real(8), dimension(nImport,2), intent(in):: StrainInc
+	!Output data
+	real(8), dimension(nInc), intent(out)::InterpolatedStrainInc
+	!Local variables
+	real(8):: ti, dt, m
+	integer:: i, j, k
+		
+	InterpolatedStrainInc=0.0d0
+	dt=DeltaT/(nInc)
+	ti=0.0d0
+	k=1
+	do i=1, nInc
+		ti=ti+dt		
+		do j=k, (nImport-1)
+			if ((ti>StrainInc(j,1)).and.(ti<=StrainInc(j+1,1))) then
+				m=(StrainInc(j+1,2)-StrainInc(j,2))/(StrainInc(j+1,1)-StrainInc(j,1))
+				InterpolatedStrainInc(i)=-m*dt				
+				k=j
+				exit
+			end if		
+		enddo		
+	enddo
+	InterpolatedStrainInc(nInc)=InterpolatedStrainInc(nInc-1)
+	
+	end subroutine InterpolsteStrains
 
 
 

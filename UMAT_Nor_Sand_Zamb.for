@@ -82,7 +82,7 @@
       p_ref=	  -props(2) !reference mean effective stress [kPa]
       nG   =	   props(3) !Shear modulus exponent [-]
 	  nu   =	   props(4) !Poisson ration [-]
-
+      PI   =       props(20)!Plasticity index
 	  
 	  !Critical state line parameters
 	  e_o=         props(5) !Initial void ratio (defines initial state parameter) [-]
@@ -136,10 +136,10 @@
 
 	  
 	  !Call sub-stepping procedure
-	  Call Nor_Sand_Rate(noel, G, g_0, bk, nu, p_ref, nG, e_o, Gamma, lambda_c, M_tc, N, CHI_tc, H, &
+	  Call Nor_Sand_Rate(noel, G, g_0, bk, nu, p_ref, nG, e_o, Gamma, lambda_c, M_tc, N, CHI_tc, H, PI, &
 		                 alpha_g, alpha_K, alpha_CHI, alpha_pi, RefRate, Erate0, Erate, R, &
 		                 switch_smooth, N_S, e, psi, CHI_tce, p_i, pi_0, M_i, SUM_rate, N_soft_i, switch_yield, &
-		                 dstran, dtime, strss, Sig, EpsP, DDSDDE)
+		                 dstran, dtime, strss, Sig, Eps, EpsP, DDSDDE)
 	  !*
 	  !*... stress state parameters update
 	  !*
@@ -173,10 +173,10 @@
 	!******************************************* Main subroutine *********************************************
 	!*********************************************************************************************************
 	!_________________________________________________________________________________________________________
-	Subroutine Nor_Sand_Rate(noel, G, G_0, K, nu, p_ref, nG, e_o, Gamma, lambda_c, M_tc, N, CHI_tc, H, &
+	Subroutine Nor_Sand_Rate(noel, G, G_0, K, nu, p_ref, nG, e_o, Gamma, lambda_c, M_tc, N, CHI_tc, H, PI, &
 		                 alpha_g, alpha_K, alpha_CHI, alpha_pi, RefRate, Erate0, Erate, R, &
 		                 switch_smooth, N_S, e, psi, CHI_tce, p_i, pi_0, M_i, SUM_rate, N_soft_i, switch_yield, &
-		                 dEps, dtime, Sig0, Sig, EpsP, DDSDDE)
+		                 dEps, dtime, Sig0, Sig, Eps, EpsP, DDSDDE)
 	
 	!_________________________________________________________________________________
 	!Sub-stepping algorithm procedure based in Sloan et al (2001). 
@@ -190,9 +190,9 @@
 	!integers
 	integer, intent(in):: noel, N_S
 	!double precision
-	double precision, intent(in):: G_0, nu, p_ref, nG, e_o, R, Gamma, lambda_c, M_tc, N, CHI_tc, H
+	double precision, intent(in):: G_0, nu, p_ref, nG, e_o, R, Gamma, lambda_c, M_tc, N, CHI_tc, H, PI
 	double precision, intent(in):: alpha_g, alpha_K, alpha_CHI, alpha_pi, RefRate, Erate0(6)
-	double precision, intent(in):: dEps(6), dtime, Sig0(6)
+	double precision, intent(in):: dEps(6), dtime, Sig0(6), Eps(6)
 	!Output variables
 	!logical
 	logical, intent(inout):: switch_yield
@@ -271,7 +271,9 @@
 	  !|_____________________________________________________________________________________________________|	  
 	  dErate=Erate-Erate0
 	  dErate_eff=IErateI-IErate0I !Increment of effective strain rate
-	  
+	  ! Degrade G and K 
+      call UpdateGandKdue2ModDeg(G_0, p, Eps, nu, PI, G, K)
+      
 	  call check4crossing(IErate0I, IErateI, dErate_eff, RefRate, ApplyStrainRateUpdates)	  
 	  if (abs(dErate_eff)==IErateI) then!Trim increment of strain rate
 		 dErate_eff=dErate_eff-RefRate
@@ -1321,7 +1323,45 @@ end subroutine  getdFdSig
 	call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi, M_i)
 	end subroutine UpdateMandpidue2Erate
 	
-	
+		subroutine UpdateGandKdue2ModDeg(G_0, p, Eps, nu, PI, G, K)
+    
+    implicit none
+	!input variables
+	double precision, intent(in):: G_0, p, nu, PI
+    double precision, intent(in),dimension(6) :: Eps
+	!output variables
+	double precision, intent(out):: G, K
+	!local variables
+	double precision:: n, m_m0, K_IZ, G_Gmax, Eps_max
+ 	
+	!Update G using Ishibashi & Zhang Mod Reduction Curves
+    
+    !Compute maximum value of total shear strain from vector of Eps
+    Eps_max = max(Eps(4),Eps(5),Eps(6))
+    
+    !Compute n as fxn of PI
+    if (PI == 0) then
+    n = 0
+    else if ((PI > 0) .and. (PI < 15)) then
+        n = 3.37e-6*PI**1.404
+    else if ((PI >= 15) .and. (PI <= 70)) then
+        n = 7.0e-7*PI**1.976
+    else
+        n = 2.7e-5*PI**1.115
+    end if
+    
+    !Compute m-m0
+    m_m0=0.272*(1-tanh(log((0.000556/Eps_max)**0.4)))*exp(-0.0145*PI**1.3)
+	!Compute K
+    K_IZ = 0.5*(1+tanh(log(((0.000102+n)/Eps_max)**0.492)))
+    !Compute G/Gmax
+    G_Gmax = K_IZ*p**m_m0
+    ! Compute new G (shear modulus)
+    G=G_0*G_Gmax
+    ! Compute new K (bulk modulus)
+    K=G*2*(1+nu)/(3*(1-2*nu))
+
+	end subroutine UpdateGandKdue2ModDeg
 	
 	subroutine UpdateGandKdue2Erate(G_0, p, p_ref, nG, nu, alpha_G, alpha_K, IErateI, &
 									IErate0I, dErate_eff, RefRate, G, K)

@@ -82,6 +82,7 @@
       p_ref=	  -props(2) !reference mean effective stress [kPa]
       nG   =	   props(3) !Shear modulus exponent [-]
 	  nu   =	   props(4) !Poisson ration [-]
+        PI  =  props(20) !Plasticity Index
 
 	  
 	  !Critical state line parameters

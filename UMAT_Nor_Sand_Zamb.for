@@ -140,7 +140,7 @@
 	  Call Nor_Sand_Rate(noel, G, g_0, bk, nu, p_ref, nG, e_o, Gamma, lambda_c, M_tc, N, CHI_tc, H, PI, &
 		                 alpha_g, alpha_K, alpha_CHI, alpha_pi, RefRate, Erate0, Erate, R, &
 		                 switch_smooth, N_S, e, psi, CHI_tce, p_i, pi_0, M_i, SUM_rate, N_soft_i, switch_yield, &
-		                 dstran, dtime, strss, Eps, Sig, EpsP, DDSDDE)
+		                 dstran, dtime, strss, Sig, stran, EpsP, DDSDDE)
 	  !*
 	  !*... stress state parameters update
 	  !*
@@ -177,7 +177,7 @@
 	Subroutine Nor_Sand_Rate(noel, G, G_0, K, nu, p_ref, nG, e_o, Gamma, lambda_c, M_tc, N, CHI_tc, H, PI, &
 		                 alpha_g, alpha_K, alpha_CHI, alpha_pi, RefRate, Erate0, Erate, R, &
 		                 switch_smooth, N_S, e, psi, CHI_tce, p_i, pi_0, M_i, SUM_rate, N_soft_i, switch_yield, &
-		                 dEps, dtime, Sig0, Sig, Eps, EpsP, DDSDDE)
+		                 dEps, dtime, Sig0, Sig, stran, EpsP, DDSDDE)
 	
 	!_________________________________________________________________________________
 	!Sub-stepping algorithm procedure based in Sloan et al (2001). 
@@ -193,7 +193,7 @@
 	!double precision
 	double precision, intent(in):: G_0, nu, p_ref, nG, e_o, R, Gamma, lambda_c, M_tc, N, CHI_tc, H, PI
 	double precision, intent(in):: alpha_g, alpha_K, alpha_CHI, alpha_pi, RefRate, Erate0(6)
-	double precision, intent(in):: dEps(6), dtime, Sig0(6), Eps(6)
+	double precision, intent(in):: dEps(6), dtime, Sig0(6), stran(6)
 	!Output variables
 	!logical
 	logical, intent(inout):: switch_yield
@@ -273,7 +273,7 @@
 	  dErate=Erate-Erate0
 	  dErate_eff=IErateI-IErate0I !Increment of effective strain rate
 	  ! Degrade G and K
-        call UpdateGandKdue2ModDeg(G_0, p, Eps, nu, PI, G, K)
+        call UpdateGandKdue2ModDeg(G_0, p, stran, nu, PI, G, K)
 	  call check4crossing(IErate0I, IErateI, dErate_eff, RefRate, ApplyStrainRateUpdates)	  
 	  if (abs(dErate_eff)==IErateI) then!Trim increment of strain rate
 		 dErate_eff=dErate_eff-RefRate
@@ -1390,12 +1390,12 @@ end subroutine getdFdSP
 	call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi, M_i)
 	end subroutine UpdateMandpidue2Erate
 	
-      subroutine UpdateGandKdue2ModDeg(G_0, p, Eps, nu, PI, G, K)
+      subroutine UpdateGandKdue2ModDeg(G_0, p, stran, nu, PI, G, K)
 
       implicit none
       !input variables
       double precision, intent(in):: G_0, p, nu, PI
-      double precision, intent(in),dimension(6) :: Eps
+      double precision, intent(in),dimension(6) :: stran
       !output variables
       double precision, intent(out):: G, K
       !local variables
@@ -1404,7 +1404,7 @@ end subroutine getdFdSP
       !Update G using Ishibashi & Zhang Mod Reduction Curves
 
       !Compute maximum value of total shear strain from vector of Eps
-      Eps_max = max(Eps(4),Eps(5),Eps(6))
+      Eps_max = max(stran(4),stran(5),stran(6))
 
       !Compute n as fxn of PI
       if (PI == 0) then

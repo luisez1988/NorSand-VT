@@ -231,7 +231,7 @@
 	  LTOL= 0.01d0 !Tolerance for elastic unloading
 	  ITER=10 ! Number of iterations for stress correction
 	  DTmin=0.000001d0
-	  km=0.1
+	  km=0.01
 	  call getPandQ (Sig0,p,q,eta)
 	  if (G==0.0d0) G=G_0*(p/p_ref)**nG
 	  if (K==0.0d0) K=2*G*(1+nu)/(3*(1-2*nu))
@@ -1033,7 +1033,7 @@ subroutine getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPP
 							theta, cos3Theta, F1(6), F2(6), F3(6), pi, Dmin
 		double precision :: p_max, pr, pl, n_L, M_itc, D
 		double precision :: dMidMtheta, sigma, iota, C_1, C_2, C_3, C_4, dMidtheta, dFdnL, dnLdTheta
-		double precision :: dFdTheta, C_v, C_q, sin_theta
+		double precision :: dFdTheta, C_v, C_q, F_to_G_gradients_angle
         integer :: I
 		  
 		PARAMETER (pi=3.14159265359D0)
@@ -1094,7 +1094,7 @@ subroutine getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPP
 		end if
 		!_______________________________________________________________________________________________
 		
-		if (p<= pr) then !Use original surface
+		!if (p<= pr) then !Use original surface
 		!___________ Get dFdM*dMdTheta*dThetadSig=F1__________________	
 			dFdM= p * (1.0d0+log(p_i/p))
 			dMidMtheta=(1.0d0-(N*CHIi*abs(psi)/M_tc))
@@ -1115,9 +1115,10 @@ subroutine getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPP
 			enddo
 		!_______ Obtain dFdSig_________________________________________
 			dFdSig=F1+F2+F3
+			dPPdSig=dFdSig !Using the original surface as plastic potential surface
 !______________________________________________________________________________________________________
 !______________________________________________________________________________________________________
-		elseif (p<=pl) then ! Use the transition surface
+		if ((p<=pl).and.(p>pr)) then ! Use the transition surface
 			sigma=1+km
 			iota=1-km
 			C_1=(log(sigma)-km)/(4*km**3)
@@ -1149,7 +1150,7 @@ subroutine getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPP
 			dFdSig=F1+F2+F3	
 !_______________________________________________________________________________________________________
 !_______________________________________________________________________________________________________
-		else !Use linear surface
+		elseif (p>pl) then !Use linear surface
 		!___________ Get dFdnL*dnLdtheta*dThetadSig=F1__________________
 			dFdnL=p
 			dnLdTheta=dMdTheta*(1-(CHIi*(N*abs(psi)+psi)/M_tc))
@@ -1170,19 +1171,7 @@ subroutine getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPP
 			enddo
 		!_______ Obtain dFdSig_________________________________________
 			dFdSig=F1+F2+F3				
-		endif			
-		Dmin=CHIi*psi
-		!call ZERO1(dPPdSig,6)
-		!dPPdSig=dFdSig
-		!dPPdSig=dQdSig- Dmin*dPdSig
-		call getDevVolStrain(dFdSig,C_v,C_q)
-		sin_theta=(C_v-Dmin*C_q)/((C_v**2 + C_q**2)*(Dmin**2+ 1.0d0))**0.5d0
-		dPPdSig=dFdSig
-		!if (sin_theta >= 0.0d0) then ! Associated
-		!	dPPdSig=dQdSig- Dmin*dPdSig					
-		!endif!Non associated
-
-		
+		endif		
 
  
 end subroutine  getdFdSig

@@ -231,7 +231,7 @@
 	  LTOL= 0.01d0 !Tolerance for elastic unloading
 	  ITER=10 ! Number of iterations for stress correction
 	  DTmin=0.000001d0
-	  km=0.01
+	  km=0.1
 	  call getPandQ (Sig0,p,q,eta)
 	  if (G==0.0d0) G=G_0*(p/p_ref)**nG
 	  if (K==0.0d0) K=2*G*(1+nu)/(3*(1-2*nu))
@@ -1178,9 +1178,9 @@ subroutine getdFdSig(km, Sig, p_i, M_i, M_tc, CHIi, CHI_tce, N, psi, dFdSig, dPP
 		call getDevVolStrain(dFdSig,C_v,C_q)
 		sin_theta=(C_v-Dmin*C_q)/((C_v**2 + C_q**2)*(Dmin**2+ 1.0d0))**0.5d0
 		dPPdSig=dFdSig
-		if (sin_theta >= 0.0d0) then ! Associated
-			dPPdSig=dQdSig- Dmin*dPdSig					
-		endif!Non associated
+		!if (sin_theta >= 0.0d0) then ! Associated
+		!	dPPdSig=dQdSig- Dmin*dPdSig					
+		!endif!Non associated
 
 		
 

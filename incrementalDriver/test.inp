@@ -1,5 +1,7 @@
-Benchmark.txt
-*TriaxialE1
-4000 150 8000: 10
--0.20
+Undrained.txt
+*TriaxialUEq
+10000 150 4000: 1
+0.20
+
+
 

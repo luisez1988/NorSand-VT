@@ -1,0 +1,18 @@
+Unloading.txt
+*TriaxialE1
+2000 150 4000: 10
+-0.10
+*TriaxialE1
+1000 150 4000: 1
+0.05
+*LinearLoad
+100 100 8000: 1
+*Roscoe
+1 -200
+0 0
+0 0
+0 0
+0 0
+0 0
+
+

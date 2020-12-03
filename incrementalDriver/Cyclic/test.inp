@@ -1,12 +1,12 @@
 Cyclic.txt
 *Repetition
-1 2
+1 1000
 *CirculatingLoad
-4000 200 1.0: 10
+4000 100 1.0: 10
 *Roscoe
 0 0 0 0
 0 0 0 0
 0 0 0 0
-1 -10 0 0
+0 -0.01 0 0
 0 0 0 0
 0 0 0 0

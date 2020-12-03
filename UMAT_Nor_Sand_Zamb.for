@@ -227,7 +227,6 @@
 	double precision:: dEpsP1(6), dEpsP2(6), Sig1(6), dSig1(6), dSig2(6), EpsP1(6)
 	double precision:: RT_Dt, nSigma, qq
 	double precision::  Theta, J3, J2, cos3Theta, Mtheta, km, M_itc !(km is the smoothness parameter)
-
 	  !______________________________________________________________________________________________________
 	  !| Initialization	of variables                                                                         |
 	  !|_____________________________________________________________________________________________________|
@@ -238,13 +237,29 @@
 	  ITER=10 ! Number of iterations for stress correction
 	  DTmin=0.00000001d0
 	  km=0.025
+	  !Mi_switch=.false. !use to correctly initialize Mi due to Lode's angle
 	  call getPandQ (Sig0,p,q,eta)
 	  if (G==0.0d0) G=G_0*(p/p_ref)**nG
 	  if (K==0.0d0) K=2*G*(1+nu)/(3*(1-2*nu))
 	  if (e==0.0d0) e=e_o
 	  if ((M_i==0.0d0).or.(p_i==0.0d0)) then
-		call getP_M_Image(Sig0, M_tc, CHI_tc, R, e, lambda_c, Gamma, N, M_i, p_i, CHIi, psi)
-		pi_0=p_i		
+		  !  Need to compute increment of elastic stress to avoid non-defined Lode's angle at begging
+		  !Assemble Elastic Matrix
+			D1  = K+(4*G/3)
+			D2  = K-(2*G/3)
+			DE  = 0.0
+			DE(1:3,1:3) = D2
+			DE(1,1) = D1
+			DE(2,2) = D1
+			DE(3,3) = D1
+			DE(4,4) = G 
+			DE(5,5) = G
+			DE(6,6) = G
+		  ! Elastic stress increment
+		call MatVec(DE, 6, dEps, 6, dsig)
+		call getP_M_Image(SPTOL, km, Sig0, dsig, M_tc, CHI_tc, R, e, lambda_c, Gamma, N, M_i, &
+						p_i, CHIi, psi)
+		pi_0=p_i
 	  endif
 	  call TwoNormTensor(Erate,6,IErateI)
 	  call TwoNormTensor(Erate0,6,IErate0I)
@@ -295,7 +310,7 @@
 	!_________________________________________________________________________________________________________  
 
 	!_________________________________________________________________________________________________________
-	!|Elastic procedure																						  |
+	!|Elastic predictor																					  |
 	!|________________________________________________________________________________________________________|
 	  !Assemble Elastic Matrix
 
@@ -310,11 +325,11 @@
         DE(5,5) = G
         DE(6,6) = G
 	  ! Elastic stress increment
-	  call MatVec(DE, 6, dEps, 6, dsig)
+	  call MatVec(DE, 6, dEps, 6, dsig)	
 	  ! total Elastic stress
 	  call AddVec(Sig0, dSig, 1d0, 1d0, 6, SigTrial)  
 	  call getPandQ (SigTrial,pTrial,qTrial,etaTrial)
-	  call getYieldFunctionNorSand (km,pTrial,qTrial,CHI_tce, CHIi, N, psi, M_tc, p_i,M_i,FT, Locus) !Evaluate yield function on trial stress	   
+	  call getYieldFunctionNorSand (km,pTrial,qTrial,CHI_tce, CHIi, N, psi, M_tc, p_i,M_i,FT) !Evaluate yield function on trial stress	   
 	  !Check Plasticity
 	  if (FT <= FTOL) then !Elastic 
 	      !DDSDDE is DE
@@ -342,7 +357,7 @@
 	  
 	  else ! Plastic		  
 
-		  call getYieldFunctionNorSand (km,p,q,CHI_tce, CHIi, N, psi, M_tc, p_i,M_i,F0, Locus) !Evaluate yield function on initial stress
+		  call getYieldFunctionNorSand (km,p,q,CHI_tce, CHIi, N, psi, M_tc, p_i,M_i,F0) !Evaluate yield function on initial stress
 		  !Check for elasto plastic transition
 
 		  if (F0 < -FTOL) then !Elasto-plastic transition
@@ -472,7 +487,7 @@
 			  psi=e-e_c
 			  CHI_tce=CHI_tce+0.5d0*(dSP1(2)+dSP2(2)) !update CHI_tce
 			  CHIi=CHI_tce/(1-lambda_c*CHI_tce/M_tc)
-			  call getMlode(Sig, M_tc, Theta, J3, J2, cos3Theta, Mtheta)
+			  call getMlode(0.5*(dSig1+dSig2), M_tc, Theta, J3, J2, cos3Theta, Mtheta)
 			  call GetMiwithPsi(Mtheta, M_tc,CHIi, N, psi,  M_i)			  
 			  G=0.5*(G_1+G_2)
 			  K=0.5*(K_1+K_2)
@@ -480,7 +495,7 @@
      		 
 			  !test yield function in new stresses
 			  call getPandQ(Sig, p,q,eta)
-			  call getYieldFunctionNorSand (km,p,q,CHI_tce, CHIi, N, psi, M_tc, p_i,M_i,F0, Locus)
+			  call getYieldFunctionNorSand (km,p,q,CHI_tce, CHIi, N, psi, M_tc, p_i,M_i,F0)
 			  
 			  
 			  if (abs(F0)>FTOL) then !stress back to yield surface
@@ -688,7 +703,7 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	CHI_tce= CHI_tce+ DSPErate(2)
 	dSP(2)=DSPErate(2)
 	CHIi=CHI_tce/(1-lambda_e*CHI_tce/M_tc)
-	call getMlode(Sig+dSig, M_tc, Theta, J3, J2, cos3Theta, Mtheta)
+	call getMlode(dSig, M_tc, Theta, J3, J2, cos3Theta, Mtheta)
 	call GetMiwithPsi(Mtheta, M_tc,CHIi, N, psi,  M_i)	
 	G=Gi
 	K=Ki	
@@ -832,7 +847,7 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	
 	!Update F2 ______________________________________________________________________________________________
 	call getPandQ(Signew, p,q,eta)
-	call getYieldFunctionNorSand(km, p,q, CHI_tce,CHIi, N, psin,M_tc, p_in,M_in, F2, dummy)
+	call getYieldFunctionNorSand(km, p,q, CHI_tce,CHIi, N, psin,M_tc, p_in,M_in, F2)
 	
 	if (abs(F2)>abs(F0)) then
 		lambda= 0.0d0
@@ -857,7 +872,7 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 		Sig=Signew
 	!Update F0
 	call getPandQ(Sig, p,q,eta)
-	call getYieldFunctionNorSand(km, p,q,CHI_tce, CHIi, N,psi,M_tc, p_i,M_i,F0,dummy)
+	call getYieldFunctionNorSand(km, p,q,CHI_tce, CHIi, N,psi,M_tc, p_i,M_i,F0)
 	count=count+1
 	end do		
 	end subroutine stressCorrection
@@ -1003,27 +1018,49 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	end subroutine GetMiwithPsi
 	
 	
-	subroutine getP_M_Image(Sig, M_tc, CHI_tc,R, e, lambda, Gamma, N, M_i, p_i, CHIi, psi_i)
+	subroutine getP_M_Image(SPTOL, km, Sig, dSig,  M_tc, CHI_tc,R, e, lambda, &
+							Gamma, N, M_i, p_i, CHIi, psi_i)
 	   !________________________________________________________________________
 	   ! Function to obtain p_i and M_i, psi
 	   !________________________________________________________________________
         implicit none
 		!input variables   
-        double precision, intent(in) :: Sig(6), M_tc, CHI_tc, lambda, Gamma, N, e, R
+        double precision, intent(in) :: SPTOL, dSig(6), Sig(6), M_tc, CHI_tc, lambda, Gamma, N, e, R
+		double precision, intent(in) :: km
 		!Output variables
 		double precision, intent(inout):: M_i, p_i, CHIi, psi_i
 		!local variables
-		double precision:: p, q, eta, theta, J3, J2, cos3Theta, Mtheta,e_ci
+		double precision:: p, q, eta, theta, J3, J2, cos3Theta, Mtheta,e_ci, pi_old, F_pi, dFdSP(2)
 
         call getPandQ(Sig, p, q, eta)
+		!Compute Mteta
+		call getMlode(dSig, M_tc, theta, J3,J2,cos3Theta,Mtheta) !Correct M due to Lode's angle
+		CHIi=CHI_tc/ (1.0d0- lambda* CHI_tc/M_tc) !Get CHI image
+		! Now compute p_i assuming q=0
 		p_i=p/exp(1.0d0)
 		p_i=p_i*R
-		!Compute Mteta
-		call getMlode(Sig, M_tc, theta, J3,J2,cos3Theta,Mtheta) !Correct M due to Lode's angle
-		CHIi=CHI_tc/ (1.0d0- lambda* CHI_tc/M_tc) !Get CHI image
-		e_ci=Gamma-lambda*log(-p_i) !Get critical voi ratio
+		e_ci=Gamma-lambda*log(-p_i) !Get critical void ratio
 		psi_i=e-e_ci	   
 		call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi_i, M_i)
+		! Now correct if stresses are not spherical
+		if (q>0.0d0) then !Needs to iterate e.g. in K_0 conditions
+			!I use Newton-Raphson to retrieve the initial state parameters
+			pi_old=0.0d0
+			F_pi=-1.0
+			do while ((abs(pi_old-p_i)> SPTOL) .or. (F_pi<0.0d0)) 
+				pi_old=p_i !Store value
+				!Evaluates yield function at Sig_0 at p_i
+				call getYieldFunctionNorSand(km,p,q,CHI_tc, CHIi, N, psi_i, M_tc, p_i,M_i,F_pi)
+				!Evaluate derivative
+				call getdFdSP(km, Sig, M_i, p_i, psi_i, CHIi, lambda, N, CHI_tc, M_tc, p, dFdSP)
+				!Get new p_i
+				p_i=p_i-(F_pi/dFdSP(1))
+				e_ci=Gamma-lambda*log(-p_i) !Get critical void ratio
+				psi_i=e-e_ci	   
+				call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi_i, M_i)
+			end do
+			p_i=p_i*R
+		end if
 		   
 	end subroutine getP_M_Image
 
@@ -1412,16 +1449,15 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 
 
     
-    subroutine getYieldFunctionNorSand (km,p,q,CHI_tc, CHIi, N, psi, M_tc, p_image,M_image,yield, Locus)
+    subroutine getYieldFunctionNorSand (km,p,q,CHI_tc, CHIi, N, psi, M_tc, p_image,M_image,yield)
 	   !_______________________________________________________________
 	   ! Yield function or plastic potential surface for Nor-Sand
 	   !_______________________________________________________________
            implicit none
            double precision, intent(in) :: km, p, q, M_image, p_image, CHI_tc, psi, M_tc, CHIi, N
-           double precision, intent(out) :: yield
-		   logical, intent(out):: Locus
+           double precision, intent(out) :: yield		   
 		   double precision:: p_max, pr, pl, n_L, sigma, iota, C_1, C_2, C_3, C_4, M_itc
-		   Locus=.false.
+		   
 
 		   M_itc=M_tc*(1-CHIi*N*abs(psi)/M_tc)
 		   p_max=p_image/exp(-CHIi*psi/M_itc)
@@ -1567,16 +1603,6 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 		p_inew=p_i
 		Chi_tcenew=CHi_tce
 		end if
-		
-		e_new=e_new+ dEpsVol*(1.+e_new) !Updated void ratio
-		e_c=Gamma-lambda*log(-p_inew)
-		psi_new=e_new-e_c
-		Chii_new=chi_tcenew/(1.0-lambda*chi_tcenew/M_tc)
-		call getMlode(Sig_0, M_tc,theta, J3, J2, cos3Theta, Mtheta)
-		call GetMiwithPsi(Mtheta, M_tc, Chii_new, N, psi_new, M_inew)
-		! Get the increment of state parameters due to strain rate________________________________
-		dSPRate(1)=p_inew-p_i
-		dSPRate(2)=Chi_tcenew-CHi_tce		
 		!__________________________________________________________________________________________
 		!Get the increment of stress
 		D1  = Ki+(4*Gi/3)
@@ -1591,6 +1617,17 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
         DE(6,6) = Gi
 		call MatVec(DE, 6, dEpsT, 6, dSigEl)
 		SigT=Sig_0+dSigEl
+		!__________________________________________________________________________________________
+		e_new=e_new+ dEpsVol*(1.+e_new) !Updated void ratio
+		e_c=Gamma-lambda*log(-p_inew)
+		psi_new=e_new-e_c
+		Chii_new=chi_tcenew/(1.0-lambda*chi_tcenew/M_tc)
+		call getMlode(dSigEl, M_tc,theta, J3, J2, cos3Theta, Mtheta)
+		call GetMiwithPsi(Mtheta, M_tc, Chii_new, N, psi_new, M_inew)
+		! Get the increment of state parameters due to strain rate________________________________
+		dSPRate(1)=p_inew-p_i
+		dSPRate(2)=Chi_tcenew-CHi_tce		
+
 		!___________________________________________________________________________________________
 		!Get the derivative of F with respect to the state parameters
 		call getdFdSP(km, SigT, M_inew, p_inew, psi_new, CHIi_new, lambda, N,&
@@ -1623,7 +1660,7 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 		!_____________________________________________________________________________________________
 		!Get new Alpha
 		call getPandQ(SigT, p, q, eta)
-		call getYieldFunctionNorSand(km, p, q, CHI_tcenew, Chii_new, N, psi_new, M_tc, p_inew,M_inew,FNewton, Locus)
+		call getYieldFunctionNorSand(km, p, q, CHI_tcenew, Chii_new, N, psi_new, M_tc, p_inew,M_inew,FNewton)
 		AlphaNewton=AlphaNewton-FNewton/Fp		
 	end do
 	!output
@@ -1699,11 +1736,11 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 	double precision:: theta, J3, J2, cos3Theta, Mtheta, e_c, p, q, eta
 	logical :: ApplyStrainRateUpdating
 	
-	call getMlode (Sig, M_tc,theta,J3,J2,cos3Theta,Mtheta)
+	call getMlode (dSig, M_tc,theta,J3,J2,cos3Theta,Mtheta)
 	call getPandQ(Sig, p,q,eta)
 	e_c=Gamma-lambda*log(-p_i)
 	psi=e-e_c
-	call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi, M_i)
+	!call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi, M_i)
 	!Update Only for strain rate reference 
 	call check4crossing(IErate0I, IErateI, (IErateI-IErate0I), RefRate, ApplyStrainRateUpdating)
 	if (ApplyStrainRateUpdating) then

@@ -129,6 +129,13 @@
 	  end do
 	  SUM_rate=		 statev(21)              !Sum of strain rates for smoothing algorithm
 	  N_soft_i=      statev(22)              !Current degree of smoothening	
+	  
+	  !________________________________________________________________________________________________!
+	  !____ Error tracking state variables															   !
+	  !																								   !
+	  Rel_error_max=0.0d0
+	  Drift_yield_max=0.0d0
+	  !________________________________________________________________________________________________!
 
 
 	 X=1/DTIME
@@ -143,7 +150,7 @@
 	  Call Nor_Sand_Rate(noel, G, g_0, bk, nu, p_ref, nG, e_o, Gamma, lambda_c, M_tc, N, CHI_tc, H_0, H_y, &
 		                 alpha_g, alpha_K, alpha_CHI, alpha_pi, RefRate, Erate0, Erate, R, &
 		                 switch_smooth, N_S, S, e, psi, CHI_tce, p_i, pi_0, M_i, SUM_rate, N_soft_i, switch_yield, &
-		                 dstran, dtime, strss, Sig, EpsP, DDSDDE)
+		                 dstran, dtime, strss, Sig, EpsP, DDSDDE, Rel_error_max, Drift_yield_max)
 	  !*
 	  !*... stress state parameters update
 	  !*
@@ -167,6 +174,8 @@
 	  statev(21)= Sum_rate
 	  statev(22)= N_soft_i
 	  statev(23)= pi_0
+	  statev(24)= Rel_error_max
+	  statev(25)=Drift_yield_max
 
 	  !End UMAT routine
 	  Return
@@ -181,7 +190,7 @@
 	Subroutine Nor_Sand_Rate(noel, G, G_0, K, nu, p_ref, nG, e_o, Gamma, lambda_c, M_tc, N, CHI_tc, H_0, H_y, &
 		                 alpha_g, alpha_K, alpha_CHI, alpha_pi, RefRate, Erate0, Erate, R, &
 		                 switch_smooth, N_S, S, e, psi, CHI_tce, p_i, pi_0, M_i, SUM_rate, N_soft_i, switch_yield, &
-		                 dEps, dtime, Sig0, Sig, EpsP, DDSDDE)
+		                 dEps, dtime, Sig0, Sig, EpsP, DDSDDE,Rel_error_max, Drift_yield_max)
 	
 	!_________________________________________________________________________________
 	!Sub-stepping algorithm procedure based in Sloan et al (2001). 
@@ -208,6 +217,7 @@
 	double precision, intent(inout):: G, K, e, psi, CHI_tce, p_i, pi_0, M_i
 	double precision, intent(inout):: Erate(6), SUM_rate
 	double precision, intent(inout):: Sig(6), EpsP(6), DDSDDE(6,6)
+	double precision, intent(inout):: Rel_error_max, Drift_yield_max
 	!____________________________________________________________________________________
 	!Local variables
 	!Logical
@@ -216,7 +226,8 @@
 	integer:: icount, ITER
 	!double precision
 	double precision:: SSTOL, FTOL, SPTOL, LTOL, DTmin
-	double precision:: IErateI, IErate0I, dErate(6), dErateS(6), DErateSS(6), ErateYield(6), dErate_eff
+	double precision:: IErateI, IErate0I, Erate_dev, Erate_vol, Erate_dev0, Erate_vol0, &
+						dErate(6), dErateS(6), DErateSS(6), ErateYield(6), dErate_eff
 	doubleprecision:: p,q,eta, p_i0, dM, dp, CHIi, ptrial, qtrial, etatrial
 	double precision:: DE(6,6), D1, D2, dSig(6), SigTrial(6)
 	double precision:: dEpsvol, dEpsq, dEpsS(6), dEpsSS(6), dEpspS(6), dEpsp(6), Epspv, Epspq, dEpsTrial(6)
@@ -262,7 +273,11 @@
 		pi_0=p_i
 	  endif
 	  call TwoNormTensor(Erate,6,IErateI)
+	  call getDevVolStrain(Erate, Erate_vol, Erate_dev)
+	  Erate_vol=abs(Erate_vol)! use the absolute value of the invariant
 	  call TwoNormTensor(Erate0,6,IErate0I)
+	  call getDevVolStrain(Erate0, Erate_vol0, Erate_dev0)
+	  Erate_vol0=abs(Erate_vol0)! use the absolute value of the invariant
 	  if (CHI_tce==0.0d0)  CHI_tce=CHI_tc
 	  CHIi=CHI_tce/ (1.0d0- lambda_c * CHI_tce/M_tc)
 	  call getYieldFunctionNorSand (km,p,q,CHI_tce, CHIi, N, psi, M_tc, p_i,M_i,F0) !Evaluate yield function on initial stress
@@ -292,21 +307,30 @@
 	  !| Update elastic and state parameters due to strain rate                                              |
 	  !|_____________________________________________________________________________________________________|	  
 	  dErate=Erate-Erate0
-	  dErate_eff=IErateI-IErate0I !Increment of effective strain rate
+	  dErate_eff=Erate_dev-Erate_dev0 !Increment of effective strain rate
 	  ! Degrade G
-	  call check4crossing(IErate0I, IErateI, dErate_eff, RefRate, ApplyStrainRateUpdates)	  
-	  if (abs(dErate_eff)==IErateI) then!Trim increment of strain rate
-		 dErate_eff=dErate_eff-RefRate
-	  endif	
+	  call check4crossing(Erate_dev0, Erate_dev, dErate_eff, RefRate, ApplyStrainRateUpdates)	  
+
+	  if (ApplyStrainRateUpdates.and.(.not.switch_yield)) then ! Update the parameters depending on the dev strain rate
+		  G=G_0*((p/p_ref)**nG)*(1.0d0+alpha_K*log10(Erate_dev/RefRate))
+		  CHI_tce=CHI_tc*(1.0d0+alpha_CHI*log10(Erate_dev/RefRate))
+	  endif
+	  
+	  dErate_eff=Erate_vol-Erate_vol0
+	  call check4crossing(Erate_vol0, Erate_vol, dErate_eff, RefRate, ApplyStrainRateUpdates)
+	  
 	  if (ApplyStrainRateUpdates.and.(.not.switch_yield)) then
-		  !Update G and K
-		  call UpdateGandKdue2Erate(G_0, p, p_ref, nG, nu, alpha_G, alpha_K, IErateI, &
-					     	IErate0I, dErate_eff, RefRate, G, K)
+		  K=G_0*((p/p_ref)**nG)*2*(1+nu)/(3*(1-2*nu))*(1.0d0+alpha_G*log10(Erate_vol/RefRate))
+	  endif
+	  
+	  dErate_eff=IErateI-IErate0I
+	  call check4crossing(IErate0I, IErateI, dErate_eff, RefRate, ApplyStrainRateUpdates)
+	  
+	 if (ApplyStrainRateUpdates.and.(.not.switch_yield)) then
 		  !Update M and pi
 		  call UpdateMandpidue2Erate(Sig0, dsig, Chi_tc, M_tc, N, alpha_pi, alpha_CHI, RefRate, lambda_c, &
 									Gamma, e, IErate0I, IErateI, dErate_eff, p_i, pi_0, M_i, &
 									psi, CHI_tce, CHIi)
-
 	  endif
 	!_________________________________________________________________________________________________________  
 
@@ -339,10 +363,12 @@
 		  Sig=SigTrial
 		  !Update state parameters due to change in Lode's angle
 	      e = e + dEpsvol * ( 1. + e) !Update void ratio
-          call ElasticUpdating(Sig, dSig, G_0, nu, p_ref, nG, M_tc, p_i, N, &
-								IErateI, IErate0I, RefRate, CHIi, e, Gamma, lambda_c, &
-		                       psi, M_i,alpha_G, alpha_K, G, K)
-		  if (switch_yield) pi_0=p_i/(1.0+alpha_pi*log10(IErate0I/RefRate))	!In case of unloading	  
+		  call getMlode (Sig, M_tc,theta,J3,J2,cos3Theta,Mtheta)
+		  call getPandQ(Sig, p,q,eta)
+		  e_c=Gamma-lambda_c*log(-p_i)
+		  psi=e-e_c
+		  call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi, M_i)
+		  if (switch_yield) pi_0=p_i/(1.0+alpha_pi*log10(IErateI/RefRate))	!In case of unloading	  
 		  switch_yield=.false.
 		  return
 	!********************************************************************************************************
@@ -362,10 +388,11 @@
 		  !Check for elasto plastic transition
 
 		  if (F0 < -FTOL) then !Elasto-plastic transition
-			  call getElasticPartNewton(km, FTOL, Sig0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
-									refRate, G_0, nu, p_ref, nG, G, K, alpha_G, alpha_K, alpha_chi, alpha_pi, &
-									Gamma, lambda_c, CHI_tce, Chi_tc, CHIi, e, psi, M_tc, N, p_i, pi_0, M_i,alpha,&
-									SigTrial, dEpsS)
+			  call getElasticPartNewton(km, FTOL, Sig0, dEps, dErate, Erate0, IErate0I, IErateI, Erate_dev, &
+										Erate_dev0, Erate_vol, Erate_vol0,  dErate_eff,  RefRate, G_0, nu,&
+										p_ref, nG, G, K, alpha_G, alpha_K, alpha_chi, alpha_pi, Gamma, lambda_c,&
+										CHI_tce, Chi_tc, CHIi, e, psi, M_tc, N, p_i, pi_0, M_i,alpha, SigTrial, dEpsS)
+
 		  else !Check elastic unloading
 			  if (F0 <= FTOL) then
 				  !Check direction of stress path with respect to actual yield surface
@@ -373,10 +400,10 @@
 											N, psi, km, IsElasticUnloading)
 				  if (IsElasticUnloading) then ! Must find intersections
 					  pi_0=p_i
-				  call getElasticPartNewton(km, FTOL, Sig0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
-									refRate, G_0, nu, p_ref, nG, G, K, alpha_G, alpha_K, alpha_chi, alpha_pi, &
-									Gamma, lambda_c, CHI_tce, Chi_tc, CHIi, e, psi, M_tc, N, p_i, pi_0, M_i,alpha,&
-									SigTrial, dEpsS)
+				  call getElasticPartNewton(km, FTOL, Sig0, dEps, dErate, Erate0, IErate0I, IErateI, Erate_dev, &
+										Erate_dev0, Erate_vol, Erate_vol0,  dErate_eff,  RefRate, G_0, nu,&
+										p_ref, nG, G, K, alpha_G, alpha_K, alpha_chi, alpha_pi, Gamma, lambda_c,&
+										CHI_tce, Chi_tc, CHIi, e, psi, M_tc, N, p_i, pi_0, M_i,alpha, SigTrial, dEpsS)
 
 				  else !Pure plasticity
 					  alpha=0.0d0	
@@ -411,9 +438,10 @@
           dEpsSS=dT*DEpsS
 		  DErateSS= dT* dErate
 		  call TwoNormTensor(ErateYield, 6, IErate0I)
+		  call getDevVolStrain(ErateYield, Erate_vol0, Erate_dev0)
 		  ErateYield=ErateYield+DErateSS
 		  call TwoNormTensor(ErateYield, 6, IErateI)
-		  dErate_eff=IErateI-IErate0I !Update strain rate increment 		  
+		  call getDevVolStrain(ErateYield, Erate_vol, Erate_dev)
 	!________________________________________________________________________________________________________
 	!| Compute first increment of stress																	|
 	!|______________________________________________________________________________________________________|
@@ -429,8 +457,8 @@
 		  !First estimate of associated stress
 		  call GetdSiganddSP (km, Locus, SigTrial, Epsp, dEpsSS, p_i1, pi_0, S, M_i1, psi_1, CHI_tce1, M_tc, CHI_tc, CHIi_1&
 			         , N, e_o, e_1 ,Gamma, lambda_c, G_0, nG, p_ref, nu, alpha_G, alpha_K, alpha_pi, alpha_chi, &
-							  IErate0I, IErateI, dErate_eff, RefRate, H_0, H_y, G_1, K_1, dEpsP1, dSig1, dSP1)
-
+							  IErate0I, IErateI, Erate_dev, Erate_dev0, Erate_vol, Erate_vol0, RefRate, H_0, &
+								H_y, G_1, K_1, dEpsP1, dSig1, dSP1) 
 		  !Update for dSig1 and dSP1
 		  Epsp1=Epsp+dEpsp1
 		  Sig1=SigTrial+dSig1
@@ -451,7 +479,8 @@
 		  !Find second approximation evaluated at sig+dSig1 and SP+dSP1
 		  call GetdSiganddSP (km, Locus, Sig1, Epsp1, dEpsSS, p_i2, pi_0, S, M_i2, psi_2, CHI_tce2, M_tc, CHI_tc, CHIi_2&
 			         , N, e_o, e_2 ,Gamma, lambda_c, G_0, nG, p_ref, nu, alpha_G, alpha_K, alpha_pi, alpha_chi, &
-							  IErate0I, IErateI, dErate_eff, RefRate, H_0, H_y, G_2, K_2, dEpsP2, dSig2, dSP2)
+							  IErate0I, IErateI, Erate_dev, Erate_dev0, Erate_vol, Erate_vol0,&
+								RefRate, H_0, H_y, G_2, K_2, dEpsP2, dSig2, dSP2)
 	!________________________________________________________________________________________________________
 
 	!________________________________________________________________________________________________________
@@ -464,6 +493,7 @@
 		  call TwoNormTensor2((dSig1-dSig2), 6, RT_dT)
 		  call TwoNormTensor2(Sig, 6, nSigma)
 		  RT_dT=RT_dT/(2.0d0*nSigma)
+		  if (RT_dT>Rel_error_max) Rel_error_max=RT_dT !Stores max relative error
 		  
 		  !Check relative error
 		  if ((RT_dT>SSTOL).and.(iCount<1001)) then !failed > sub-stepping
@@ -484,6 +514,15 @@
 			  Epsp=Epsp+dEpspS
 			  e=e_1
 			  p_i=p_i+0.5d0*(dSP1(1)+dSP2(1))
+			  !___update quasistatic state parameter
+			  dErate_eff=IErateI-IErate0I
+			  call check4crossing(IErate0I, IErateI, dErate_eff, RefRate, ApplyStrainRateUpdates)
+			  if (ApplyStrainRateUpdates) then
+				pi_0=p_i/(1.0d0+alpha_pi*log10(IErateI/refrate))
+			  else
+				pi_0=p_i
+			  endif	
+			  !______________________________________
 			  e_c=Gamma-lambda_c*log(-p_i)
 			  psi=e-e_c
 			  CHI_tce=CHI_tce+0.5d0*(dSP1(2)+dSP2(2)) !update CHI_tce
@@ -492,17 +531,18 @@
 			  call GetMiwithPsi(Mtheta, M_tc,CHIi, N, psi,  M_i)			  
 			  G=0.5*(G_1+G_2)
 			  K=0.5*(K_1+K_2)
+			  
 			  !______________________________________________________________________________________________
      		 
 			  !test yield function in new stresses
 			  call getPandQ(Sig, p,q,eta)
 			  call getYieldFunctionNorSand (km,p,q,CHI_tce, CHIi, N, psi, M_tc, p_i,M_i,F0)
-			  
+			  if (abs(F0)>Drift_yield_max) Drift_yield_max=abs(F0) !Stores max stress drift
 			  
 			  if (abs(F0)>FTOL) then !stress back to yield surface
 				  call stressCorrection(km, ITER, FTOL, F0, dEpsSS, Sig, G_0, nu, p_ref, nG, p_i, pi_0, &
 					  S, M_i, M_tc, N, psi, CHIi, CHI_tc, CHI_tce, H_0, H_y, e_o, e, Gamma, Lambda_c, &
-					  IErateI, RefRate, K, G, Locus, Epsp)					  
+					  IErate0I, IErateI, RefRate, K, G, Locus, Epsp, alpha_G, alpha_K, alpha_pi)				  
 			  end if
 			  !______________________________________________________________________________________________
 			  qq=min((0.9d0*sqrt(SSTOL/RT_dT)),1.1d0)
@@ -547,7 +587,8 @@
 	!_________________________________________________________________________________________________________
 subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI_tce, M_tc, CHI_tc, CHIi, N, e_o, e &
 						,Gamma, lambda_e, G_0, nG, p_ref, nu, alpha_G, alpha_K, alpha_pi, alpha_chi, &
-						IErate0I, IErateI, dErate_eff, RefRate, H_0, H_y, G, K, dEpsP, dSig, dSP)
+						IErate0I, IErateI, Erate_dev, Erate_dev0, Erate_vol, Erate_vol0, RefRate, H_0, &
+						H_y, G, K, dEpsP, dSig, dSP)
 	!_____________________________________________________________________________________
 	!Subroutine for correcting the stress to the yield surface
 	!_____________________________________________________________________________________
@@ -558,7 +599,7 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	double precision, intent(in):: G_0, nu, p_ref, nG, alpha_G, alpha_K, km, S
 	double precision, intent(in):: M_tc, N, CHI_tc, H_0, H_y
 	double precision, intent(in):: e_o, Gamma, lambda_e
-	double precision, intent(in):: IErate0I, IErateI, dErate_eff, RefRate
+	double precision, intent(in):: IErate0I, IErateI, RefRate, Erate_dev, Erate_dev0, Erate_vol, Erate_vol0
 	double precision, intent(in):: alpha_CHI, alpha_pi
 	!output variables	
 	double precision, dimension(6), intent(out)::dSig, dEpsP
@@ -574,7 +615,7 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	double precision:: p, q, eta, psi_i, e_c, p_0, A, Hard, Gi, Ki, dCHI_tce, Undrained_and_PSR_term
 	double precision:: denom, numerator, lambda, aux2(2), Error, Dummyvar,&
 						C1, C2, C3, Chier, Mitcer, M_itc, psir, F1, F2, eta_L, dpimax
-	double precision:: theta, J3, J2, cos3theta, Mtheta, D1, D2, dEpsvol, dEpsq, dFdM
+	double precision:: theta, J3, J2, cos3theta, Mtheta, D1, D2, dEpsvol, dEpsq, dFdM, dErate_eff
 	logical:: ApplyStrainRateUpdates
 	integer:: I, J
 	
@@ -592,7 +633,8 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	
 	! get dSPdEpsp evaluated at Sig, M_i, p_i
 	call getdSPdEpsp(Locus, Sig, Epsp, dEps, e_o, e, H_0, H_y, p_i, pi_0, q, p, M_i, M_tc,&
-					CHIi, CHI_tce, psi, N, S, K, Gamma, lambda_e, dSPdEpsp) 
+					CHIi, CHI_tce, psi, N, S, K, Gamma, lambda_e, dSPdEpsp, IErateI, IErate0I, &
+					Refrate, alpha_pi) 
 	!_________________________________________________________________________________________________
 	
 	!Update parameters due to strain rate  ___________________________________________________________
@@ -600,13 +642,25 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	Ki=K
 	DSPErate=0.0d0
 	dCHI_tce=0.0d0
-	!call check4crossing(IErate0I, IErateI, dErate_eff, RefRate,ApplyStrainRateUpdates)
-	!  if (ApplyStrainRateUpdates) then	!update for strain rate				
-	!	dCHI_tce=Chi_tc*(1.0+alpha_chi*log10(IErateI/refrate))		
-	!	DSPErate(2)=dCHI_tce-Chi_tce
-	!	call UpdateGandKdue2Erate(G_0, p, p_ref, nG, nu, alpha_G, alpha_K, IErateI, &
-	!								IErate0I, dErate_eff, RefRate, Gi, Ki)
-	!  end if	  
+	
+	dErate_eff=Erate_dev-Erate_dev0
+	call check4crossing(Erate_dev0, Erate_dev, dErate_eff, RefRate,ApplyStrainRateUpdates)
+	if (ApplyStrainRateUpdates) then	!update for strain rate	
+		DSPErate(2)=Chi_tc*alpha_chi*log10(Erate_dev/Erate_dev0)
+		Gi=G_0*((p/p_ref)**nG)*(1.0d0+alpha_K*log10(Erate_dev/RefRate))
+	endif
+	
+	dErate_eff=Erate_vol-Erate_vol0
+	call check4crossing(Erate_vol0, Erate_vol, dErate_eff, RefRate,ApplyStrainRateUpdates)
+	if (ApplyStrainRateUpdates) then
+	    K=G_0*((p/p_ref)**nG)*2*(1+nu)/(3*(1-2*nu))*(1.0d0+alpha_G*log10(Erate_vol/RefRate))
+	endif
+	
+	dErate_eff=IErateI-IErate0I
+	call check4crossing(IErate0I, IErateI, dErate_eff, RefRate,ApplyStrainRateUpdates)
+	if (ApplyStrainRateUpdates) then	!update for strain rate		
+		DSPErate(1)=pi_0*alpha_pi*log10(IErateI/IErate0I)
+	end if	  
 	!_________________________________________________________________________________________________
 	  
 	!Ensemble Elastic constitutive matrix _____________________________________________________________
@@ -697,6 +751,11 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	
 	!Update state parameters ______________________________________________________________________________
 	p_i=p_i+dSP(1)
+	if (ApplyStrainRateUpdates) then
+		pi_0=p_i/(1.0d0+alpha_pi*log10(IErateI/Refrate))
+	else
+		pi_0=p_i
+	endif		
 	call getDevVolStrain(dEps, dEpsvol, dEpsq)
 	e= e + dEpsvol * ( 1. + e)
 	e_c=Gamma-lambda_e*log(-p_i)
@@ -712,8 +771,10 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	end subroutine GetdSiganddSP
 !	
 !	
-	subroutine stressCorrection(km, MAXIT, FTOL, F0, dEpsp, Sig, G_0, nu, p_ref, nG, p_i, pi_0, S, M_i, M_tc, N, psi, CHIi, &
-			     CHI_tc, CHI_tce, H_0, H_y, e_o, e, Gamma, Lambda_e, IErateI, RefRate, K, G, Locus, Epsp, alpha_G, alpha_K)
+	subroutine stressCorrection(km, MAXIT, FTOL, F0, dEpsp, Sig, G_0, nu, p_ref, nG, p_i, pi_0, &
+								S, M_i, M_tc, N, psi, CHIi, CHI_tc, CHI_tce, H_0, H_y, e_o, e, Gamma,&
+								Lambda_e, IErate0I, IErateI, RefRate, K, G, Locus, Epsp, alpha_G, &
+								alpha_K, alpha_pi)
 	!_____________________________________________________________________________________
 	!Subroutine for computing the change in stress (dSig) and state parameters (dSP)
 	!_____________________________________________________________________________________
@@ -725,7 +786,7 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	double precision, intent(in):: G_0, nu, p_ref, nG, M_tc, N, CHIi, CHI_tc, CHI_tce, H_0, H_y, km, S
 	double precision, intent(inout):: p_i, M_i, e, psi
 	double precision, intent(in):: e_o, Gamma, lambda_e
-	double precision, intent(in):: IErateI, RefRate, alpha_G, alpha_K
+	double precision, intent(in)::  IErate0I, IErateI, RefRate, alpha_G, alpha_K, alpha_pi
 	integer, intent(in):: MAXIT
 	!output variables	
 	double precision, intent(inout):: F0, Sig(6), Epsp(6), G, K, pi_0
@@ -758,7 +819,9 @@ subroutine GetdSiganddSP(km, Locus, Sig, Epsp, dEps, p_i, pi_0, S, M_i, psi, CHI
 	
 	! get dSPdEpsp evaluated at Sig, M_i, p_i
 	call getdSPdEpsp(Locus, Sig, Epsp, dEpsp, e_o, e, H_0, H_y, p_i, pi_0, q ,p, M_i, M_tc, &
-					CHIi, CHI_tce, psi, N, S, K, Gamma, lambda_e, dSPdEpsp)
+					CHIi, CHI_tce, psi, N, S, K, Gamma, lambda_e, dSPdEpsp, IErateI, IErate0I,&
+					Refrate, alpha_pi)	
+
 	
 	!Ensemble Elastic constitutive matrix _____________________________________________________________
 	  
@@ -1291,7 +1354,8 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 	
 	!
 	subroutine getdSPdEpsp(Locus, Sig, Epsp, dEps, e_o, e, H_0, H_y, p_i, pi_0, q, p, M_i, M_tc, CHIi, &
-							CHI_tce, psi, N, S, K, Gamma, lambda, dSPdEpsp)
+							CHI_tce, psi, N, S, K, Gamma, lambda, dSPdEpsp, IErateI, IErate0I, Refrate, &
+							alpha_pi)
 	!____________________________________________________________________
 	! subroutine to get the derivative of the state parameters with respect
 	! to the plastic strain
@@ -1301,17 +1365,19 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 	!input variables
 	double precision, dimension(6), intent(in):: Epsp, dEps, Sig
 	double precision, intent(in):: M_i, p_i, psi,q, p, e_o, e, lambda, Gamma, pi_0
-	double precision, intent(in):: M_tc, N, CHIi, Chi_tce, H_0, H_y, S, K
+	double precision, intent(in):: M_tc, N, CHIi, Chi_tce, H_0, H_y, S, K, RefRate
+	double precision, intent(inout):: IErateI, IErate0I, alpha_pi
 
 	logical, intent(in):: Locus
 	!output variables
 	double precision, dimension(2,6), intent(out):: dSPdEpsp
 	!local variables
-	double precision:: theta, J3, J2, cos3Theta, Mtheta, dMitcdpsi
+	double precision:: theta, J3, J2, cos3Theta, Mtheta, dMitcdpsi, dErate
 	double precision:: ps, pmax, dpidpsi, dpidMitc, dMidpsi, dpsidpi, psi_act, H, Ts, eta_L
 	double precision:: dEpsqdEpsp(6), Epspq, Epspv, dpidEpspeq, dpsidEpsv, dpidEpspv
 	double precision:: dEpspvdEpsp(6), dMidEpsv, dMidEpsq, M_itc, dEpspv, dEpspq
 	integer:: I
+	logical:: apply_strainrate_update
 	
 	call getDevVolStrain(Epsp,Epspv,Epspq)
 	!1depspvdepsp
@@ -1333,9 +1399,16 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 		H=H_0-H_y*psi_act
 		Ts=(k/p)*(q/p)*(M_i+(q/p))/((1.0d0+CHIi*lambda/M_itc)*eta_L)
 		dpidEpspeq=(H*p_i*M_i*((p/p_i)*(p/p_i))*(exp(-CHIi*psi/M_itc)-(p_i/p))/M_itc)-(S*Ts*p_i)
+		
+		!____ The derivative must consider the effect of strain rate____________________________
+		dErate=IErateI-IErate0I
+		call check4crossing(IErate0I, IErateI, dErate, RefRate, apply_strainrate_update)		
+		if (apply_strainrate_update) dpidEpspeq=dpidEpspeq*(1.0d0+alpha_pi*log10(IErateI/Refrate)) !Correct for strain rate
+		!_______________________________________________________________________________________
+		
 		call getdEpseqdEpsp(EpsP,EpsPq,dEpsqdEpsp)
 		do I=1,6
-			 dSPdEpsp(1,I)=dpidEpspeq*(1.0d0)*dEpsqdEpsp(I)
+			 dSPdEpsp(1,I)=dpidEpspeq*dEpsqdEpsp(I)
 		end do
 		!________________________________________________________________________________________
 		!I assume p_i is the only state variable
@@ -1420,9 +1493,7 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 	double precision:: e_ci, Aux, theta, J3, J2, cos3Theta, Mtheta, dp, Erate0, Epspq
 	double precision:: dCHI_tce, CHIiold, dpidEpsqp0, dpidEpsqpf, dCHIi, Nsum, &
 						C1, C2, C3, Mi_tc, ps, pmax, dpi_0, dpidpio, dp_i, dgdpi
-	!Update Chi	
-
-	CHI_tce=CHI_tc*(1.0d0+alpha_CHI*log10(IErateI/RefRate))
+	
 	p_i=pi_0*(1.0d0+alpha_pi*log10(IErateI/RefRate))
 	CHIi=CHI_tce/(1- lambda*CHI_tce/M_tc)
 	e_ci=Gamma-lambda*log(-p_i)
@@ -1434,19 +1505,23 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 	
 	
 	subroutine UpdateGandKdue2Erate(G_0, p, p_ref, nG, nu, alpha_G, alpha_K, IErateI, &
-									IErate0I, dErate_eff, RefRate, G, K)
+									IErate0I, Erate_vol, Erate_vol0, dErate_eff, RefRate, G, K)
 	implicit none
 	!input variables
 	double precision, intent(in):: G_0, p, p_ref, nG, nu
 	double precision, intent(in):: alpha_G, alpha_K, IErateI, IErate0I, dErate_eff, RefRate
 	!output variables
-	double precision, intent(inout):: G, K
+	double precision, intent(inout):: G, K, Erate_vol, Erate_vol0
 	!local variables
 	double precision:: dG, K_0
+	logical:: ApplyVolStrainRate
 	
 	!Update G
 	G=G_0*((p/p_ref)**nG)*(1.0d0+alpha_K*log10(IErateI/RefRate))
-	K=G_0*((p/p_ref)**nG)*2*(1+nu)/(3*(1-2*nu))*(1.0d0+alpha_G*log10(IErateI/RefRate))
+	
+	!Update K
+	call check4crossing(Erate_vol0,Erate_vol, dErate_eff, dErate_eff, ApplyVolStrainRate)
+	if (ApplyVolStrainRate) K=G_0*((p/p_ref)**nG)*2*(1+nu)/(3*(1-2*nu))*(1.0d0+alpha_G*log10(IErateI/RefRate))
 
 	end subroutine UpdateGandKdue2Erate	
 
@@ -1553,9 +1628,10 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 
 !
 !	
-	subroutine getElasticPartNewton(km, FTOL, Sig_0, dEps, dErate, Erate0, IErate0I, IErateI, dErate_eff,  &
-									refRate, G_0, nu, p_ref, nG, G, K, alpha_G, alpha_K, alpha_chi, alpha_pi, &
-									Gamma, lambda, CHI_tce, Chi_tc, CHIi, e, psi, M_tc, N, p_i, pi_0, M_i,alphaNewton,&
+	subroutine getElasticPartNewton(km, FTOL, Sig_0, dEps, dErate, Erate0, IErate0I, IErateI, Erate_dev,&
+									Erate_dev0, Erate_vol, Erate_vol0, dErate_eff, refRate, G_0, nu,&
+									p_ref, nG, G, K, alpha_G, alpha_K, alpha_chi, alpha_pi, Gamma, &
+									lambda, CHI_tce, Chi_tc, CHIi, e, psi, M_tc, N, p_i, pi_0, M_i,alphaNewton,&
 									Sig, dEpsS)
 	!__________________________________________________________________
 	!Routine to obtain elastic part of loading path using the
@@ -1566,54 +1642,69 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 	double precision, intent(in):: FTOL, Sig_0(6), dEps(6), RefRate, km
 	double precision, intent(in):: Chi_tc, M_tc, N, pi_0, alpha_chi, alpha_pi
 	double precision, intent(in):: G_0, nu, p_ref, nG, alpha_G, alpha_K
-	double precision, intent(in):: Gamma, Lambda, IErateI
+	double precision, intent(in):: Gamma, Lambda, IErateI, Erate_dev, Erate_vol
 	!out variables
 	double precision, intent(inout):: alphaNewton, e, p_i, chi_tce, psi, Chii, G, K, M_i
 	double precision, intent(out):: Sig(6), dEpsS(6)
-	double precision, intent(inout)::dErate(6), Erate0(6), IErate0I, dErate_eff
+	double precision, intent(inout)::dErate(6), Erate0(6), IErate0I, dErate_eff, Erate_dev0, Erate_vol0
 	!local variables
 	double precision:: FNewton, e_new, p_inew, chi_tcenew, psi_new, e_c, Chii_new, M_inew, Fp
-	double precision:: dEpsT(6), dErateT(6), ErateT(6), IErateTI, dSigEl(6), SigT(6)
+	double precision:: dEpsT(6), dErateT(6), ErateT(6), IErateTI, dSigEl(6), SigT(6), &
+					   Erate_dev_T, Erate_vol_T
 	double precision:: p, q, eta,p_t, q_t, Gi, Ki, dEpsVol, dEpsq, Mtheta, theta, J3, J2, cos3Theta, DeltaK, deltaG
 	double precision:: dSPRate(2), D1, D2, DE(6,6), dDdK(6,6), dDdG(6,6), AlphaD(6,6), dSigdalpha(6), &
 						dFdSig(6), dFdSP(2)
 	integer:: I, c
-	logical:: ApplyStrainRateUpdating, Locus
+	logical:: ApplyStrainRateUpdating
 	
-	Locus=.false.
+
 	
 	!Initialize the data	
 	alphaNewton=0.0
 	FNewton=999.0
 	c=0
 	call getPandQ(Sig_0, p, q, eta)
-	dSPRate(1)=p_i-pi_0*(1.0+alpha_pi*log10(IErate0I/refRate))
-	dSPRate(2)=CHi_tce-	CHI_tc*(1.0+alpha_chi*log10(IErate0I/refRate))
-	DeltaK=K-(G_0*(p/p_ref)**nG)*(2.*(1.+nu)/(3.*(1.-2.*nu)))*(1.0+alpha_G*log10(IErate0I/refRate))
-	DeltaG=G-(G_0*(p/p_ref)**nG)*(1.0+alpha_K*log10(IErate0I/refRate))	
+	dSPRate(1)=pi_0*alpha_pi*log10(IErateI/IErate0I)
+	dSPRate(2)=CHI_tc*alpha_chi*log10(Erate_dev/Erate_dev0)
+	DeltaK=(G_0*(p/p_ref)**nG)*(2.*(1.+nu)/(3.*(1.-2.*nu)))*(alpha_G*log10(Erate_vol/Erate_vol0))
+	DeltaG=(G_0*(p/p_ref)**nG)*(alpha_K*log10(Erate_dev/Erate_dev0))	
 	do while (((abs(FNewton)>FTOL).or.(FNewton<0.0)).and.(c<20))
 		c=c+1
 		e_new=e
 		dEpsT=alphaNewton*dEps !Guess of alpha
 		derateT=alphaNewton*dErate
 		ErateT=Erate0+derateT
-		call TwoNormTensor(ErateT,6, IErateTI) !Effective strain rate		
+		call TwoNormTensor(ErateT,6, IErateTI) !Effective strain rate
+		call getDevVolStrain(ErateT, Erate_vol_T, Erate_dev_T)
+		Erate_vol_T=abs(Erate_vol_T)
 		call getDevVolStrain(dEpsT, dEpsVol, dEpsq)
-		dErate_eff=IErateTI-IErate0I
-		call check4crossing(IErate0I, IErateTI, dErate_eff, RefRate, ApplyStrainRateUpdating)
 		
 		!__________________________________________________________________________________________
-
+		
+		dErate_eff=Erate_dev_T-Erate_dev0
+		call check4crossing(Erate_dev0, Erate_dev_T, dErate_eff, RefRate, ApplyStrainRateUpdating)
+		if (ApplyStrainRateUpdating) then !update G and chi_tc
+			Gi=(G_0*(p/p_ref)**nG)*(1.0+alpha_G*log10(Erate_dev_T/refRate))
+			chi_tcenew=CHI_tc*(1.0+alpha_chi*log10(Erate_dev_T/refRate))
+		else
+			Gi=G
+			Chi_tcenew=CHi_tce
+		endif
+		
+		dErate_eff=Erate_vol_T-Erate_vol0
+		call check4crossing(Erate_vol0, Erate_vol_T, dErate_eff, RefRate, ApplyStrainRateUpdating)
+		if (ApplyStrainRateUpdating) then !Update K
+			Ki=(G_0*(p/p_ref)**nG)*(2.*(1.+nu)/(3.*(1.-2.*nu)))*(1.0+alpha_K*log10(IErateTI/refRate))
+		else
+			Ki=K
+		endif		
+		
+		dErate_eff=IErateTI-IErate0I
+		call check4crossing(IErate0I, IErateTI, dErate_eff, RefRate, ApplyStrainRateUpdating)
 		if (ApplyStrainRateUpdating) then !update state parameters due to strain rate
-		p_inew=pi_0*(1.0+alpha_pi*log10(IErateTI/refRate))
-		chi_tcenew=CHI_tc*(1.0+alpha_chi*log10(IErateTI/refRate))
-		Gi=(G_0*(p/p_ref)**nG)*(1.0+alpha_G*log10(IErateTI/refRate))
-		Ki=(G_0*(p/p_ref)**nG)*(2.*(1.+nu)/(3.*(1.-2.*nu)))*(1.0+alpha_K*log10(IErateTI/refRate))		
-		else !Check This
-		Gi=G
-		Ki=K		
-		p_inew=p_i
-		Chi_tcenew=CHi_tce
+			p_inew=pi_0*(1.0+alpha_pi*log10(IErateTI/refRate))			
+		else !Check This				
+			p_inew=p_i	
 		end if
 		!__________________________________________________________________________________________
 		!Get the increment of stress
@@ -1735,38 +1826,38 @@ subroutine getdFdSP(km, Sig, M_i, p_i, psi, CHIi, lambda, N, CHI_tce, M_tc, p, d
 	end subroutine CheckElasticUnloading	
 
 	
-	subroutine ElasticUpdating(Sig, dSig, G_0, nu, p_ref, nG, M_tc, p_i, N, &
-								IErateI, IErate0I, RefRate, CHIi, e, Gamma, lambda &
-		                        ,psi, M_i, alpha_G, alpha_K,G, K)
-	!______________________________________________________________________________
-	!Updates the state parameter for an elastic load path
-	!______________________________________________________________________________
-	implicit none
-	!Input variables
-	double precision, intent(in):: Sig(6), dSig(6), M_tc, p_i, N, CHIi
-	double precision, intent(in):: G_0, nu, p_ref, nG, IErateI,IErate0I,  RefRate
-	double precision, intent(in):: e, Gamma, lambda, alpha_G, alpha_K
-	!out variables
-	double precision, intent(inout):: psi, M_i, G, K
-	!local variables
-	double precision:: theta, J3, J2, cos3Theta, Mtheta, e_c, p, q, eta
-	logical :: ApplyStrainRateUpdating
-	
-	call getMlode (Sig, M_tc,theta,J3,J2,cos3Theta,Mtheta)
-	call getPandQ(Sig, p,q,eta)
-	e_c=Gamma-lambda*log(-p_i)
-	psi=e-e_c
-	call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi, M_i)
-	!Update Only for strain rate reference 
-	call check4crossing(IErate0I, IErateI, (IErateI-IErate0I), RefRate, ApplyStrainRateUpdating)
-	if (ApplyStrainRateUpdating) then
-	G=G_0*((p/p_ref)**nG)*(1.0d0+alpha_G*log10(IErateI/RefRate))
-	K=G_0*((p/p_ref)**nG)*2.0*(1.0+nu)/(3.0*(1.0-2.0*nu))*(1.0d0+alpha_K*log10(IErateI/RefRate))
-	else
-	G=G_0*((p/p_ref)**nG)
-	K=G_0*((p/p_ref)**nG)*2.0*(1.0+nu)/(3.0*(1.0-2.0*nu))
-	end if
-	end subroutine ElasticUpdating
+	!subroutine ElasticUpdating(Sig, dSig, G_0, nu, p_ref, nG, M_tc, p_i, N, &
+	!							IErateI, IErate0I, RefRate, CHIi, e, Gamma, lambda &
+	!	                        ,psi, M_i, alpha_G, alpha_K,G, K)
+	!!______________________________________________________________________________
+	!!Updates the state parameter for an elastic load path
+	!!______________________________________________________________________________
+	!implicit none
+	!!Input variables
+	!double precision, intent(in):: Sig(6), dSig(6), M_tc, p_i, N, CHIi
+	!double precision, intent(in):: G_0, nu, p_ref, nG, IErateI,IErate0I,  RefRate
+	!double precision, intent(in):: e, Gamma, lambda, alpha_G, alpha_K
+	!!out variables
+	!double precision, intent(inout):: psi, M_i, G, K
+	!!local variables
+	!double precision:: theta, J3, J2, cos3Theta, Mtheta, e_c, p, q, eta
+	!logical :: ApplyStrainRateUpdating
+	!
+	!call getMlode (Sig, M_tc,theta,J3,J2,cos3Theta,Mtheta)
+	!call getPandQ(Sig, p,q,eta)
+	!e_c=Gamma-lambda*log(-p_i)
+	!psi=e-e_c
+	!call GetMiwithPsi(Mtheta, M_tc, CHIi, N, psi, M_i)
+	!!Update Only for strain rate reference 
+	!!call check4crossing(IErate0I, IErateI, (IErateI-IErate0I), RefRate, ApplyStrainRateUpdating)
+	!!if (ApplyStrainRateUpdating) then
+	!!G=G_0*((p/p_ref)**nG)*(1.0d0+alpha_G*log10(IErateI/RefRate))
+	!!K=G_0*((p/p_ref)**nG)*2.0*(1.0+nu)/(3.0*(1.0-2.0*nu))*(1.0d0+alpha_K*log10(IErateI/RefRate))
+	!!else
+	!!G=G_0*((p/p_ref)**nG)
+	!!K=G_0*((p/p_ref)**nG)*2.0*(1.0+nu)/(3.0*(1.0-2.0*nu))
+	!!end if
+	!end subroutine ElasticUpdating
 
 !/////////////////////////////////////////////////////////////////////////////////////////////////////////////	
 	!_________________________________________________________________________________________________________
